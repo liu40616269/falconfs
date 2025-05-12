@@ -54,3 +54,19 @@ class Client:
     @copy_doc_from(_pyfalconfs_internal.Write)
     def Write(self, path, fd, buffer, size, offset):
         return _pyfalconfs_internal.Write(path, fd, buffer, size, offset)
+
+    @copy_doc_from(_pyfalconfs_internal.Stat)
+    def Stat(self, path):
+        return _pyfalconfs_internal.Stat(path)
+
+    @copy_doc_from(_pyfalconfs_internal.OpenDir)
+    def OpenDir(self, path):
+        return _pyfalconfs_internal.OpenDir(path)
+
+    @copy_doc_from(_pyfalconfs_internal.CloseDir)
+    def CloseDir(self, path, fd):
+        return _pyfalconfs_internal.CloseDir(path, fd)
+
+    @copy_doc_from(_pyfalconfs_internal.ReadDir)
+    def ReadDir(self, path, fd):
+        return _pyfalconfs_internal.ReadDir(path, fd)

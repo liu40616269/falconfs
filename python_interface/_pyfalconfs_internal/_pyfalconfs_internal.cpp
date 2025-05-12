@@ -48,7 +48,7 @@ static void Init(const char* workspace, const char* runningConfigFile)
 
     setenv("CONFIG_FILE", pyConfigFile.c_str(), 1);
 
-    int ret;
+    int ret = -1;
     ret = GetInit().Init();
     if (ret != FALCON_SUCCESS)
         throw std::runtime_error("Falcon init failed. Error: " + std::to_string(ret));
@@ -92,7 +92,7 @@ static PyObject* PyWrapper_Mkdir(PyObject* self, PyObject* args)
     if (!PyArg_ParseTuple(args, "s", &path))
         return NULL;
     
-    int ret;
+    int ret = -1;
     try
     {
         ret = Mkdir(path);
@@ -110,7 +110,7 @@ static int Rmdir(const char* path)
 {
     FalconStats::GetInstance().stats[META_RMDIR].fetch_add(1);
     StatFuseTimer t;
-    int ret;
+    int ret = -1;
     ret = FalconRmDir(path);
     return ret > 0 ? -ErrorCodeToErrno(ret) : ret;
 } 
@@ -120,7 +120,7 @@ static PyObject* PyWrapper_Rmdir(PyObject* self, PyObject* args)
     if (!PyArg_ParseTuple(args, "s", &path))
         return NULL;
     
-    int ret;
+    int ret = -1;
     try
     {
         ret = Rmdir(path);
@@ -155,7 +155,7 @@ static PyObject* PyWrapper_Create(PyObject* self, PyObject* args)
     if (!PyArg_ParseTuple(args, "si", &path, &oflags))
         return NULL;
     
-    int ret;
+    int ret = -1;
     uint64_t fd;
     try
     {
@@ -174,7 +174,7 @@ static int Unlink(const char *path)
 {
     FalconStats::GetInstance().stats[META_UNLINK].fetch_add(1);
     StatFuseTimer t;
-    int ret;
+    int ret = -1;
     ret = FalconUnlink(path);
     return ret > 0 ? -ErrorCodeToErrno(ret) : ret;
 }
@@ -184,7 +184,7 @@ static PyObject* PyWrapper_Unlink(PyObject* self, PyObject* args)
     if (!PyArg_ParseTuple(args, "s", &path))
         return NULL;
     
-    int ret;
+    int ret = -1;
     try
     {
         ret = Unlink(path);
@@ -217,7 +217,7 @@ static PyObject* PyWrapper_Open(PyObject* self, PyObject* args)
     if (!PyArg_ParseTuple(args, "si", &path, &oflags))
         return NULL;
     
-    int ret;
+    int ret = -1;
     uint64_t fd;
     try
     {
@@ -246,7 +246,7 @@ static PyObject* PyWrapper_Flush(PyObject* self, PyObject* args)
     if (!PyArg_ParseTuple(args, "sK", &path, &fd))
         return NULL;
     
-    int ret;
+    int ret = -1;
     try
     {
         ret = Flush(path, fd);
@@ -278,7 +278,7 @@ static PyObject* PyWrapper_Close(PyObject* self, PyObject* args)
     if (!PyArg_ParseTuple(args, "sK", &path, &fd))
         return NULL;
     
-    int ret;
+    int ret = -1;
     try
     {
         ret = Close(path, fd);
@@ -315,7 +315,7 @@ static PyObject* PyWrapper_Read(PyObject* self, PyObject* args)
         return NULL;
     }
     
-    int ret;
+    int ret = -1;
     try
     {
         ret = Read(path, fd, (char*)buffer.buf, size, offset);
@@ -333,7 +333,7 @@ static int Write(const char *path, uint64_t fd, char *buffer, size_t size, off_t
 {
     FalconStats::GetInstance().stats[FUSE_WRITE_OPS].fetch_add(1);
     StatFuseTimer t(FUSE_WRITE_LAT);
-    uint ret;
+    uint ret = -1;
     ret = FalconWrite(fd, path, buffer, size, offset);
     if (ret != 0) {
         return ret;
@@ -356,7 +356,7 @@ static PyObject* PyWrapper_Write(PyObject* self, PyObject* args)
         return NULL;
     }
     
-    int ret;
+    int ret = -1;
     try
     {
         ret = Write(path, fd, (char*)buffer.buf, size, offset);
@@ -368,6 +368,178 @@ static PyObject* PyWrapper_Write(PyObject* self, PyObject* args)
     }
     
     return PyLong_FromLong(ret);
+}
+
+static int Stat(const char *path, struct stat *stbuf)
+{
+    const char *lastSlash = strrchr(path, '/');
+    if (lastSlash != nullptr && *(lastSlash + 1) == 1) 
+    {
+        char middle_component_flag = *(lastSlash + 2);
+
+        FalconStats::GetInstance().stats[META_LOOKUP].fetch_add(1);
+        errno_t err = memmove_s((char *)(lastSlash + 1),
+                                strlen(lastSlash + 1) + 1,
+                                (char *)(lastSlash + 3),
+                                strlen(lastSlash + 3) + 1);
+        if (err != 0) 
+        {
+            return -err;
+        }
+        if (middle_component_flag == '1') 
+        {
+            stbuf->st_mode = 040777;
+            return 0;
+        }
+    } 
+    else 
+    {
+        FalconStats::GetInstance().stats[META_STAT].fetch_add(1);
+    }
+
+    StatFuseTimer t;
+    int ret = FalconGetStat(path, stbuf);
+    return ret > 0 ? -ErrorCodeToErrno(ret) : ret;
+}
+static PyObject* PyWrapper_Stat(PyObject* self, PyObject* args) 
+{
+    char* path = nullptr;
+    if (!PyArg_ParseTuple(args, "s", &path))
+        return NULL;
+    
+    int ret = -1;
+    struct stat stbuf;
+    try
+    {
+        ret = Stat(path, &stbuf);
+    }
+    catch (const std::exception& e)
+    {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+    
+    PyObject* dict = PyDict_New();
+    if (ret == 0)
+    {
+        PyDict_SetItem(dict, PyUnicode_FromString("st_dev"), PyLong_FromLong(stbuf.st_dev));
+        PyDict_SetItem(dict, PyUnicode_FromString("st_ino"), PyLong_FromLong(stbuf.st_ino));
+        PyDict_SetItem(dict, PyUnicode_FromString("st_nlink"), PyLong_FromLong(stbuf.st_nlink));
+        PyDict_SetItem(dict, PyUnicode_FromString("st_mode"), PyLong_FromLong(stbuf.st_mode));
+        PyDict_SetItem(dict, PyUnicode_FromString("st_uid"), PyLong_FromLong(stbuf.st_uid));
+        PyDict_SetItem(dict, PyUnicode_FromString("st_gid"), PyLong_FromLong(stbuf.st_gid));
+        PyDict_SetItem(dict, PyUnicode_FromString("st_rdev"), PyLong_FromLong(stbuf.st_rdev));
+        PyDict_SetItem(dict, PyUnicode_FromString("st_size"), PyLong_FromLong(stbuf.st_size));
+        PyDict_SetItem(dict, PyUnicode_FromString("st_blksize"), PyLong_FromLong(stbuf.st_blksize));
+        PyDict_SetItem(dict, PyUnicode_FromString("st_blocks"), PyLong_FromLong(stbuf.st_blocks));
+        PyDict_SetItem(dict, PyUnicode_FromString("st_atime"), PyLong_FromLong(stbuf.st_atime));
+        PyDict_SetItem(dict, PyUnicode_FromString("st_mtime"), PyLong_FromLong(stbuf.st_mtime));
+        PyDict_SetItem(dict, PyUnicode_FromString("st_ctime"), PyLong_FromLong(stbuf.st_ctime));
+    }
+    
+    return Py_BuildValue("(iN)", ret, dict);
+}
+
+static int OpenDir(const char *path, uint64_t& fd)
+{
+    if (path == nullptr || strlen(path) == 0) {
+        return -EINVAL;
+    }
+    FalconStats::GetInstance().stats[META_OPENDIR].fetch_add(1);
+    StatFuseTimer t;
+    FalconFuseInfo fi;
+    int ret = FalconOpenDir(path, &fi);
+    fd = fi.fh;
+    return ret > 0 ? -ErrorCodeToErrno(ret) : ret;
+}
+static PyObject* PyWrapper_OpenDir(PyObject* self, PyObject* args) 
+{
+    char* path = nullptr;
+    if (!PyArg_ParseTuple(args, "s", &path))
+        return NULL;
+    
+    int ret = -1;
+    uint64_t fd = 0;
+    try
+    {
+        ret = OpenDir(path, fd);
+    }
+    catch (const std::exception& e)
+    {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+
+    return Py_BuildValue("(iK)", ret, fd);
+}
+
+static int CloseDir(const char *path, uint64_t fd)
+{
+    FalconStats::GetInstance().stats[META_RELEASEDIR].fetch_add(1);
+    StatFuseTimer t;
+    int ret = FalconCloseDir(fd);
+    return ret > 0 ? -ErrorCodeToErrno(ret) : ret;
+}
+static PyObject* PyWrapper_CloseDir(PyObject* self, PyObject* args) 
+{
+    char* path = nullptr;
+    uint64_t fd;
+    if (!PyArg_ParseTuple(args, "sK", &path, &fd))
+        return NULL;
+    
+    int ret = -1;
+    try
+    {
+        ret = CloseDir(path, fd);
+    }
+    catch (const std::exception& e)
+    {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return NULL;
+    }
+    
+    return PyLong_FromLong(ret);
+}
+
+static int ReadDir(const char *path, void *buf, FalconFuseFiller filler, off_t offset, uint64_t fd)
+{
+    FalconStats::GetInstance().stats[META_READDIR].fetch_add(1);
+    StatFuseTimer t;
+    int ret = 0;
+    FalconFuseInfo fi;
+    fi.fh = fd;
+    ret = FalconReadDir(path, buf, filler, offset, &fi);
+    return ret > 0 ? -ErrorCodeToErrno(ret) : ret;
+}
+static PyObject* PyWrapper_ReadDir(PyObject* self, PyObject* args)
+{
+    char* path = nullptr;
+    uint64_t fd = 0;
+    if (!PyArg_ParseTuple(args, "sK", &path, &fd))
+        return NULL;
+    
+    PyObject* list = PyList_New(0);
+    auto filler = [](void* buf, const char* name, const struct stat* stbuf, off_t index) -> int
+    {
+        PyObject* list = (PyObject*)buf;
+        mode_t mode = stbuf ? stbuf->st_mode : (S_IFDIR | 0755);
+        PyList_Append(list, Py_BuildValue("(si)", name, mode));
+        return 0;
+    };
+    int ret = 0;
+    int offset = 0;
+    while (true)
+    {
+        ret = ReadDir(path, list, filler, offset, fd);
+        if (ret != 0)
+            break;
+        int newOffset = PyList_Size(list);
+        if (newOffset == offset)
+            break;
+        offset = newOffset;
+    }
+
+    return Py_BuildValue("(iN)", ret, list);
 }
 
 static PyMethodDef PyFalconFSInternalMethods[] = 
@@ -446,7 +618,7 @@ static PyMethodDef PyFalconFSInternalMethods[] =
         "  path (str): Target file path, must start with '/', which corresponding to mount point\n"
         "  fd (int): File descriptor of target file\n"
         "Returns:\n"
-        "  errno (int): Refer to errno in linux\n"
+        "  errno (int): Refer to errno in linux"
     },
     {
         "Close", 
@@ -457,7 +629,7 @@ static PyMethodDef PyFalconFSInternalMethods[] =
         "  path (str): Target file path, must start with '/', which corresponding to mount point\n"
         "  fd (int): File descriptor of target file\n"
         "Returns:\n"
-        "  errno (int): Refer to errno in linux\n"
+        "  errno (int): Refer to errno in linux"
     },
     {
         "Read", 
@@ -471,7 +643,7 @@ static PyMethodDef PyFalconFSInternalMethods[] =
         "  size (int): Requested size\n"
         "  offset (int): Read offset\n"
         "Returns:\n"
-        "  read size (int): read byte size\n"
+        "  read size (int): read byte size"
     },
     {
         "Write", 
@@ -485,7 +657,52 @@ static PyMethodDef PyFalconFSInternalMethods[] =
         "  size (int): To write size\n"
         "  offset (int): Write offset\n"
         "Returns:\n"
-        "  write size (int): write byte size\n"
+        "  write size (int): write byte size"
+    },
+    {
+        "Stat", 
+        PyWrapper_Stat, 
+        METH_VARARGS, 
+        "Write data to file in FalconFS\n"
+        "Parameters:\n"
+        "  path (str): Target file/directory path, must start with '/', which corresponding to mount point\n"
+        "Returns:\n"
+        "  errno (int): Refer to errno in linux\n"
+        "  stbuf (dict): Info of target"
+    },
+    {
+        "OpenDir", 
+        PyWrapper_OpenDir, 
+        METH_VARARGS, 
+        "Open directory in FalconFS\n"
+        "Parameters:\n"
+        "  path (str): Target directory path, must start with '/', which corresponding to mount point\n"
+        "Returns:\n"
+        "  errno (int): Refer to errno in linux\n"
+        "  fd (int): File descriptor of opened directory"
+    },
+    {
+        "CloseDir", 
+        PyWrapper_CloseDir, 
+        METH_VARARGS, 
+        "Close directory in FalconFS\n"
+        "Parameters:\n"
+        "  path (str): Target directory path, must start with '/', which corresponding to mount point\n"
+        "  fd (int): File descriptor of target directory\n"
+        "Returns:\n"
+        "  errno (int): Refer to errno in linux"
+    },
+    {
+        "ReadDir", 
+        PyWrapper_ReadDir, 
+        METH_VARARGS, 
+        "Read directory in FalconFS\n"
+        "Parameters:\n"
+        "  path (str): Target directory path, must start with '/', which corresponding to mount point\n"
+        "  fd (int): File descriptor of target directory\n"
+        "Returns:\n"
+        "  errno (int): Refer to errno in linux\n"
+        "  content (list): Contain items which are (name, st_mode)"
     },
     {
         NULL, 
