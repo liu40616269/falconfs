@@ -1,6 +1,11 @@
 # Install
 
-1. Build this project first according to ${PROJECT_SOURCE_DIR}/README.md
+1. Build and install this project first according to ${PROJECT_SOURCE_DIR}/README.md. For example:
+```
+cd ${PROJECT_SOURCE_DIR}
+./build.sh
+./build.sh install
+```
 
 2. Run `pip install .` under ${PROJECT_SOURCE_DIR}/python_interface.
 
