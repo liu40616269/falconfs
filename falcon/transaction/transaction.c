@@ -164,7 +164,6 @@ static void FalconTransactionCallback(XactEvent event, void *args)
         RWLockReleaseAll(true);
         PG_TRY();
         {
-            
             if (!FalconRemoteCommandAbort())
                 elog(WARNING, "%s, Abort failed.", FalconErrorCodeToString[PROGRAM_ERROR]);
         }

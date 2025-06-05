@@ -85,7 +85,16 @@ void FalconDaemon2PCFailureCleanupProcessMain(Datum main_arg)
     } while (!serviceStarted);
     elog(LOG, "FalconDaemon2PCFailureCleanupProcessMain: init finished.");
     StartTransactionCommand();
-    int serverId = GetLocalServerId();
+    int serverId = -1;
+    while (true)
+    {
+        serverId = GetLocalServerId();
+        if (serverId != -1)
+            break;
+        
+        // wait for shard table init
+        sleep(1);
+    }
     CommitTransactionCommand();
     if (serverId == 0) {
         while (!got_SIGTERM) {

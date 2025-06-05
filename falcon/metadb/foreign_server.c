@@ -335,8 +335,6 @@ static void RenewForeignServerLocalCache(const bool needLock)
                 break;
             }
         }
-        if (LocalServerId == -1)
-            FALCON_ELOG_ERROR(PROGRAM_ERROR, "no server is local. check foreign_server_table.");
     }
 
     // 3. update local version
