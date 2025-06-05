@@ -10,6 +10,7 @@
 #include "access/heapam.h"
 #include "access/skey.h"
 #include "access/table.h"
+#include "access/xlog.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_collation_d.h"
 #include "executor/executor.h"
@@ -82,7 +83,7 @@ void FalconDaemon2PCFailureCleanupProcessMain(Datum main_arg)
     do {
         sleep(10);
         serviceStarted = CheckFalconBackgroundServiceStarted();
-    } while (!serviceStarted);
+    } while (!serviceStarted || RecoveryInProgress());
     elog(LOG, "FalconDaemon2PCFailureCleanupProcessMain: init finished.");
     StartTransactionCommand();
     int serverId = -1;

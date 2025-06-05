@@ -16,6 +16,7 @@
 #include "utils/error_log.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
+#include "access/xlog.h"
 
 #include "connection_pool/brpc_server.h"
 #include "control/control_flag.h"
@@ -48,7 +49,7 @@ void FalconDaemonConnectionPoolProcessMain(unsigned long int main_arg)
     do {
         sleep(1);
         serviceStarted = CheckFalconBackgroundServiceStarted();
-    } while (!serviceStarted);
+    } while (!serviceStarted || RecoveryInProgress());
     elog(LOG, "FalconDaemonConnectionPoolProcessMain: init finished.");
 
     FalconPGPort = PostPortNumber;
