@@ -31,8 +31,6 @@ def main():
         falcon_cm.watch_replicas()
         falcon_cm.init_ready()
     else:
-        if not falcon_cm.is_sys_ready():
-            falcon_cm.watch_leader_and_candidates()
         logger_.info("This node is cn follower")
         falcon_cm.write_replica()
 

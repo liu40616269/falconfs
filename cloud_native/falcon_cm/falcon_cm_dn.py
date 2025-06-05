@@ -20,8 +20,6 @@ def main():
             falcon_cm.watch_leader_and_candidates()
         falcon_cm.watch_replicas()
     else:
-        if not falcon_cm.is_sys_ready():
-            falcon_cm.watch_leader_and_candidates()
         falcon_cm.write_replica()
     falcon_cm.watch_conn()
     falcon_cm.monitor_store_node()
