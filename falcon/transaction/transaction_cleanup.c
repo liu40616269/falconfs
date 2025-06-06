@@ -79,15 +79,17 @@ void FalconDaemon2PCFailureCleanupProcessMain(Datum main_arg)
     ResourceOwner oldOwner = CurrentResourceOwner;
     CurrentResourceOwner = myOwner;
     elog(LOG, "FalconDaemon2PCFailureCleanupProcessMain: wait init.");
-    StartTransactionCommand();
+    bool falconHasBeenLoad = false;
     while (true)
     {
-        if (CheckFalconHasBeenLoaded()) {
+        StartTransactionCommand();
+        falconHasBeenLoad = CheckFalconHasBeenLoaded();
+        CommitTransactionCommand();
+        if (falconHasBeenLoad) {
             break;
         }
         sleep(1);
     }
-    CommitTransactionCommand();
     bool serviceStarted = false;
     do {
         sleep(1);

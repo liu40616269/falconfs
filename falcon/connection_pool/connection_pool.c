@@ -47,15 +47,17 @@ void FalconDaemonConnectionPoolProcessMain(unsigned long int main_arg)
                                                  ALLOCSET_DEFAULT_MAXSIZE);
     elog(LOG, "FalconDaemonConnectionPoolProcessMain: pid = %d", getpid());
     elog(LOG, "FalconDaemonConnectionPoolProcessMain: wait init.");
-    StartTransactionCommand();
+    bool falconHasBeenLoad = false;
     while (true)
     {
-        if (CheckFalconHasBeenLoaded()) {
+        StartTransactionCommand();
+        falconHasBeenLoad = CheckFalconHasBeenLoaded();
+        CommitTransactionCommand();
+        if (falconHasBeenLoad) {
             break;
         }
         sleep(1);
     }
-    CommitTransactionCommand();
     bool serviceStarted = false;
     do {
         sleep(1);
