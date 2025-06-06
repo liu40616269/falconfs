@@ -17,9 +17,11 @@
 #include "utils/memutils.h"
 #include "utils/resowner.h"
 #include "access/xlog.h"
+#include "access/xact.h"
 
 #include "connection_pool/brpc_server.h"
 #include "control/control_flag.h"
+#include "utils/utils.h"
 
 int FalconPGPort = 0;
 int FalconConnectionPoolPort = FALCON_CONNECTION_POOL_PORT_DEFAULT;
@@ -45,6 +47,15 @@ void FalconDaemonConnectionPoolProcessMain(unsigned long int main_arg)
                                                  ALLOCSET_DEFAULT_MAXSIZE);
     elog(LOG, "FalconDaemonConnectionPoolProcessMain: pid = %d", getpid());
     elog(LOG, "FalconDaemonConnectionPoolProcessMain: wait init.");
+    StartTransactionCommand();
+    while (true)
+    {
+        if (CheckFalconHasBeenLoaded()) {
+            break;
+        }
+        sleep(1);
+    }
+    CommitTransactionCommand();
     bool serviceStarted = false;
     do {
         sleep(1);

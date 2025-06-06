@@ -79,9 +79,18 @@ void FalconDaemon2PCFailureCleanupProcessMain(Datum main_arg)
     ResourceOwner oldOwner = CurrentResourceOwner;
     CurrentResourceOwner = myOwner;
     elog(LOG, "FalconDaemon2PCFailureCleanupProcessMain: wait init.");
+    StartTransactionCommand();
+    while (true)
+    {
+        if (CheckFalconHasBeenLoaded()) {
+            break;
+        }
+        sleep(1);
+    }
+    CommitTransactionCommand();
     bool serviceStarted = false;
     do {
-        sleep(10);
+        sleep(1);
         serviceStarted = CheckFalconBackgroundServiceStarted();
     } while (!serviceStarted || RecoveryInProgress());
     elog(LOG, "FalconDaemon2PCFailureCleanupProcessMain: init finished.");
@@ -98,6 +107,7 @@ void FalconDaemon2PCFailureCleanupProcessMain(Datum main_arg)
     }
     CommitTransactionCommand();
     if (serverId == 0) {
+        elog(LOG, "FalconDaemon2PCFailureCleanupProcessMain: Running.");
         while (!got_SIGTERM) {
             MemoryContext oldContext = MemoryContextSwitchTo(myContext);
 
