@@ -85,18 +85,18 @@ void FalconDaemon2PCFailureCleanupProcessMain(Datum main_arg)
         serviceStarted = CheckFalconBackgroundServiceStarted();
     } while (!serviceStarted || RecoveryInProgress());
     elog(LOG, "FalconDaemon2PCFailureCleanupProcessMain: init finished.");
-    StartTransactionCommand();
     int serverId = -1;
     while (true)
     {
+        StartTransactionCommand();
         serverId = GetLocalServerId();
+        CommitTransactionCommand();
         if (serverId != -1)
             break;
         
         // wait for shard table init
         sleep(1);
     }
-    CommitTransactionCommand();
     if (serverId == 0) {
         while (!got_SIGTERM) {
             MemoryContext oldContext = MemoryContextSwitchTo(myContext);
