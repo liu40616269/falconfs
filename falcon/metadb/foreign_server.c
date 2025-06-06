@@ -23,6 +23,7 @@
 #include "utils/snapmgr.h"
 #include "utils/wait_event.h"
 
+#include "control/control_flag.h"
 #include "utils/error_log.h"
 #include "utils/shmem_control.h"
 #include "utils/utils.h"
@@ -493,7 +494,11 @@ List *GetForeignServerConnection(List *foreignServerIdList)
         }
     }
     if (!connectSucceed) {
-        FALCON_ELOG_ERROR(PROGRAM_ERROR, "error while trying to get connection.");
+        if (FalconIsInAbortProgress()) {
+            FALCON_ELOG_WARNING(PROGRAM_ERROR, "connection to some server failed while aborting.");
+        } else {
+            FALCON_ELOG_ERROR(PROGRAM_ERROR, "error while trying to get connection.");
+        }
     }
     return result;
 }
