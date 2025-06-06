@@ -162,18 +162,8 @@ static void FalconTransactionCallback(XactEvent event, void *args)
         TransactionLevelPathParseReset();
         AbortForDirPathHash();
         RWLockReleaseAll(true);
-        PG_TRY();
-        {
-            if (!FalconRemoteCommandAbort())
-                elog(WARNING, "%s, Abort failed.", FalconErrorCodeToString[PROGRAM_ERROR]);
-        }
-        PG_CATCH();
-        {
-            FlushErrorState();
-            FALCON_ELOG_WARNING(PROGRAM_ERROR, "Error while sending abort to remote servers.");
-        }
-        PG_END_TRY();
-
+        if (!FalconRemoteCommandAbort())
+            FALCON_ELOG_WARNING(PROGRAM_ERROR, "Abort failed on some servers.");
         ClearRemoteTransactionGid();
         ClearRemoteConnectionCommand();
         if (falconExplicitTransactionState == FALCON_EXPLICIT_TRANSACTION_BEGIN)

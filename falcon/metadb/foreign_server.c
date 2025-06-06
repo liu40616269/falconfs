@@ -493,7 +493,11 @@ List *GetForeignServerConnection(List *foreignServerIdList)
         }
     }
     if (!connectSucceed) {
-        FALCON_ELOG_ERROR(PROGRAM_ERROR, "error while trying to get connection.");
+        if (FalconIsInAbortProgress()) {
+            FALCON_ELOG_WARNING(PROGRAM_ERROR, "connection to some server failed while aborting.");
+        } else {
+            FALCON_ELOG_ERROR(PROGRAM_ERROR, "error while trying to get connection.");
+        }
     }
     return result;
 }
