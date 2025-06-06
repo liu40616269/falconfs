@@ -26,9 +26,9 @@ do
     exit=0
     for j in {1..10}
     do
-        outputFile=/opt/output/falconfs_${i}_${j}.out
+        outputFile=/opt/log/output/falconfs_${i}_${j}.out
         if [ ! -f $outputFile ]; then
-            mv /opt/output/falconfs.out $outputFile
+            mv /opt/log/output/falconfs.out $outputFile
             exit=1
             break
         fi
@@ -38,10 +38,10 @@ do
     fi
 done
 
-if [ -f "/opt/output/falconfs_2_10.out" ]; then
+if [ -f "/opt/log/output/falconfs_2_10.out" ]; then
     for i in {1..10}
     do
-        basePath=/opt/output/falconfs
+        basePath=/opt/log/output/falconfs
         rm ${basePath}_1_$i.out
         mv ${basePath}_2_$i.out ${basePath}_1_$i.out
     done
