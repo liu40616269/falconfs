@@ -23,6 +23,7 @@
 #include "utils/snapmgr.h"
 #include "utils/wait_event.h"
 
+#include "control/control_flag.h"
 #include "utils/error_log.h"
 #include "utils/shmem_control.h"
 #include "utils/utils.h"
