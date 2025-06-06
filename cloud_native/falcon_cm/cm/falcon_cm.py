@@ -754,7 +754,7 @@ class FalconCM:
                 self._replica_list = self._zk_client.get_children(replica_path)
                 if len(self._replica_list) < self._replica_server_num:
                     self._isCheckStatus = True
-                    retry_num = int(self._wait_replica_time / 10)
+                    retry_num = int(self._wait_replica_time / 10) + 1
                     while self._isCheckStatus:
                         self._replica_list = self._zk_client.get_children(replica_path)
                         if len(self._replica_list) == self._replica_server_num:
@@ -792,12 +792,13 @@ class FalconCM:
                 else:
                     self._lost_node_time[name] = 0
                 self.logger.info('lost time is {}'.format(self._lost_node_time[name]))
-                if self._lost_node_time[name] >= self._wait_replica_time:
+                if self._lost_node_time[name] >= self._wait_replica_time - 10:
                     retry_num = 0
             else:
                 if name in self._lost_node_time:
                     del self._lost_node_time[name]
-        if isCheckStatus and retry_num == 0:
+        if retry_num == 0:
+            self.logger.info('check replica lost')
             for name in host_nodes:
                 node_path = ""
                 if self._is_cn:
@@ -806,7 +807,7 @@ class FalconCM:
                     node_path = self._dn_path + "/" + name
                 if self._zk_client.exists(node_path):
                     continue
-                if self._lost_node_time[name] >= self._wait_replica_time:
+                if self._lost_node_time[name] >= self._wait_replica_time - 10:
                     self.logger.info(
                         "The node {} is lost, please check the status".format(name)
                     )
