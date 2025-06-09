@@ -83,7 +83,7 @@ bool CheckFalconHasBeenLoaded(void)
         return false;
     }
     Oid falconExtensionOid = get_extension_oid("falcon", true);
-    if ((creating_extension && CurrentExtensionObject == falconExtensionOid) || falconExtensionOid == InvalidOid) {
+    if (falconExtensionOid == InvalidOid || (creating_extension && CurrentExtensionObject == falconExtensionOid)) {
         return false;
     }
     return true;
