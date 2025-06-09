@@ -36,7 +36,7 @@ void FalconControlShmemInit()
         LWLockRegisterTranche(FalconControlShmemControl->trancheId, FalconControlShmemControl->lockTrancheName);
         LWLockInitialize(&FalconControlShmemControl->lock, FalconControlShmemControl->trancheId);
 
-        pg_atomic_init_u32(FalconBackgroundServiceStarted, 1);
+        pg_atomic_init_u32(FalconBackgroundServiceStarted, 0);
     }
 }
 
