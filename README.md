@@ -7,16 +7,19 @@ FalconFS is a high-performance distributed file system (DFS) optimized for AI wo
 
 1. **Massive small files** – Its high-performance distributed metadata engine dramatically improves I/O throughput of handling massive small files (e.g., images), eliminating storage bottlenecks in AI data preprocessing and model training.
 
-2. **High throughput requirement** – In tiered storage (i.e., DRAM, SSD and elastic object store), FalconFS can aggregates near-compute DRAM and SSDs to provide over TB/s high throughput for AI workloads (e.g., KV Cache Offloading, model training and data preprocessing).
+2. **High throughput requirement** – In tiered storage (i.e., DRAM, SSD and elastic object store), FalconFS can aggregates near-compute DRAM and SSDs to provide over TB/s high throughput for AI workloads (e.g., model training, data preprocessing and KV cache offloading).
 
 3. **Large scale** - FalconFS can scale to thousands of NPUs through its scale-out metadata engine and scale-up single metadata performance.
 
-Through the above advantages, FalconFS delivers an ideal storage solution for modern AI pipelines.
+Through the above advantages, FalconFS delivers an ideal storage solution for modern AI workloads and has been running in Huawei autonomous driving system's production environment with 10,000 NPUs.
 
 ## Documents
 
 - [FalconFS Design](./docs/design.md)
-- [FalconFS Cluster Test Setup Guide](./deploy/ansible/README.md)
+- [FalconFS Cluster Test Setup Guide](./docs/setup.md)
+
+## Architecture
+![FalconFS Architecture](https://github.com/user-attachments/assets/5ff1e80a-4cce-4b05-a35d-8da54191fb30)
 
 ## Performance
 
@@ -102,40 +105,5 @@ cd falconfs
 ./build.sh clean falcon # only clean falconfs
 ./build.sh build falcon --debug # build falconfs with debug
 ```
-
-## Debug
-
-### build and start FalconFS in the docker
-
-> **⚠️ Warning**  
-> This only for debug mode, do not use no_root_check.patch in production!
-
-no root check debug, suppose at the `~/code` dir
-``` bash
-docker run --privileged -d -it --name falcon-dev -v `pwd`:/root/code -w /root/code/falconfs ghcr.io/falcon-infra/falconfs-dev:0.1.1
-docker exec -it --detach-keys="ctrl-z,z" falcon-dev /bin/zsh
-git -C third_party/postgres apply ../../patches/no_root_check.patch
-./build.sh clean
-./build.sh build --debug && ./build.sh install
-source deploy/falcon_env.sh
-./deploy/falcon_start.sh
-```
-
-### debug falcon meta server
-
-- first login to cn: `psql -d postgres -p $cnport`
-- when in the pg cli
-``` bash
-select pg_backend_pid(); # to get pid, then use gdb to attach the pid
-SELECT falcon_plain_mkdir('/test'); # to trigger mkdir meta operation
-```
-
-### run some test and stop
-
-``` bash
-./.github/workflows/smoke_test.sh /tmp/falcon_mnt
-./deploy/falcon_stop.sh
-```
-
 ## Copyright
 Copyright (c) 2025 Huawei Technologies Co., Ltd.

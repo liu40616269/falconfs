@@ -154,18 +154,7 @@ class FalconCM:
                 except NodeExistsError:
                     self._is_leader = False
             else:
-                retry_num = 30
-                while not self._zk_client.exists(leader_path) and retry_num > 0:
-                    retry_num -= 1
-                    time.sleep(1)
-                self.watch_leader_and_candidates()
-                while not self._zk_client.exists(leader_path):
-                    time.sleep(1)
-                last_leader, _ = self._zk_client.get(last_leader_path)
-                if last_leader == self._host_node_name:
-                    self._is_leader = True
-                else:
-                    self._is_leader = False
+                self._is_leader = False
         else:
             if self._zk_client.exists(leader_path):
                 self._is_leader = False
@@ -301,6 +290,7 @@ class FalconCM:
                 self._user_name,
             )
         self._zk_client.create(replica_path, ephemeral=True)
+        self.watch_leader_and_candidates()
 
     def find_node_cluster(self):
         """find the cluster for the node"""
@@ -396,8 +386,8 @@ class FalconCM:
 
         @self._zk_client.DataWatch(leader_path)
         def watch_leader(data, state, event):
-            if state == None and event == None:
-                self.handle_leader_delete_event()
+            # if state == None and event == None:
+            #     self.handle_leader_delete_event()
             if event:
                 if event.type == EventType.DELETED:
                     self.handle_leader_delete_event()
@@ -764,7 +754,7 @@ class FalconCM:
                 self._replica_list = self._zk_client.get_children(replica_path)
                 if len(self._replica_list) < self._replica_server_num:
                     self._isCheckStatus = True
-                    retry_num = int(self._wait_replica_time / 10)
+                    retry_num = int(self._wait_replica_time / 10) + 1
                     while self._isCheckStatus:
                         self._replica_list = self._zk_client.get_children(replica_path)
                         if len(self._replica_list) == self._replica_server_num:
@@ -801,12 +791,14 @@ class FalconCM:
                     self._lost_node_time[name] = self._lost_node_time[name] + 10
                 else:
                     self._lost_node_time[name] = 0
-                if self._lost_node_time[name] > self._wait_replica_time:
+                self.logger.info('lost time is {}'.format(self._lost_node_time[name]))
+                if self._lost_node_time[name] >= self._wait_replica_time - 10:
                     retry_num = 0
             else:
                 if name in self._lost_node_time:
                     del self._lost_node_time[name]
-        if isCheckStatus and retry_num == 0:
+        if retry_num == 0:
+            self.logger.info('check replica lost')
             for name in host_nodes:
                 node_path = ""
                 if self._is_cn:
@@ -815,7 +807,7 @@ class FalconCM:
                     node_path = self._dn_path + "/" + name
                 if self._zk_client.exists(node_path):
                     continue
-                if self._lost_node_time[name] >= self._wait_replica_time:
+                if self._lost_node_time[name] >= self._wait_replica_time - 10:
                     self.logger.info(
                         "The node {} is lost, please check the status".format(name)
                     )
@@ -903,6 +895,7 @@ class FalconCM:
     def watch_need_supplement(self):
         @self._zk_client.ChildrenWatch(self._need_supplement_path)
         def watch_nodes(children):
+            self.logger.info('in need supplement watch')
             self._watch_need_supplement_lock.acquire()
             self._need_supplement_num += 1
             self._watch_need_supplement_lock.release()
@@ -912,6 +905,7 @@ class FalconCM:
 
         @self._zk_client.ChildrenWatch(replica_path)
         def watch_nodes(children):
+            self.logger.info('in watch replicas')
             self._watch_replica_lock.acquire()
             self._replica_change_num += 1
             self._watch_replica_lock.release()

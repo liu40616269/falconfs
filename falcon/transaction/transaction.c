@@ -163,7 +163,7 @@ static void FalconTransactionCallback(XactEvent event, void *args)
         AbortForDirPathHash();
         RWLockReleaseAll(true);
         if (!FalconRemoteCommandAbort())
-            elog(WARNING, "%s, Abort failed.", FalconErrorCodeToString[PROGRAM_ERROR]);
+            FALCON_ELOG_WARNING(PROGRAM_ERROR, "Abort failed on some servers.");
         ClearRemoteTransactionGid();
         ClearRemoteConnectionCommand();
         if (falconExplicitTransactionState == FALCON_EXPLICIT_TRANSACTION_BEGIN)

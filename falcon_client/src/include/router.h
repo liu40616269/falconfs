@@ -12,7 +12,7 @@
 
 #include "connection.h"
 
-#define SLEEPTIME 5
+#define SLEEPTIME 3
 #define RETRY_CNT 3
 
 struct InodeIdentifier

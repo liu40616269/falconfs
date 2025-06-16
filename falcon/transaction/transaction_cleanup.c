@@ -10,6 +10,7 @@
 #include "access/heapam.h"
 #include "access/skey.h"
 #include "access/table.h"
+#include "access/xlog.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_collation_d.h"
 #include "executor/executor.h"
@@ -78,16 +79,37 @@ void FalconDaemon2PCFailureCleanupProcessMain(Datum main_arg)
     ResourceOwner oldOwner = CurrentResourceOwner;
     CurrentResourceOwner = myOwner;
     elog(LOG, "FalconDaemon2PCFailureCleanupProcessMain: wait init.");
+    bool falconHasBeenLoad = false;
+    while (true)
+    {
+        StartTransactionCommand();
+        falconHasBeenLoad = CheckFalconHasBeenLoaded();
+        CommitTransactionCommand();
+        if (falconHasBeenLoad) {
+            break;
+        }
+        sleep(1);
+    }
     bool serviceStarted = false;
     do {
-        sleep(10);
+        sleep(1);
         serviceStarted = CheckFalconBackgroundServiceStarted();
-    } while (!serviceStarted);
+    } while (!serviceStarted || RecoveryInProgress());
     elog(LOG, "FalconDaemon2PCFailureCleanupProcessMain: init finished.");
-    StartTransactionCommand();
-    int serverId = GetLocalServerId();
-    CommitTransactionCommand();
+    int serverId = -1;
+    while (true)
+    {
+        StartTransactionCommand();
+        serverId = GetLocalServerId();
+        CommitTransactionCommand();
+        if (serverId != -1)
+            break;
+        
+        // wait for shard table init
+        sleep(1);
+    }
     if (serverId == 0) {
+        elog(LOG, "FalconDaemon2PCFailureCleanupProcessMain: Running.");
         while (!got_SIGTERM) {
             MemoryContext oldContext = MemoryContextSwitchTo(myContext);
 

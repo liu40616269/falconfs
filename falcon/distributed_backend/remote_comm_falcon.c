@@ -538,6 +538,12 @@ bool FalconRemoteCommandAbort()
 
     for (int i = 0; i < list_length(workerIdList); ++i) {
         ForeignServerConnection *foreignServerConn = list_nth(connList, i);
+        if (foreignServerConn->conn == NULL) {
+            // skip failed connection
+            succeed = false;
+            continue;
+        }
+
         ClearPGresultInPGconn(foreignServerConn->conn);
 
         int succeedThisTime = false;
@@ -569,6 +575,9 @@ bool FalconRemoteCommandAbort()
 
     for (int i = 0; i < list_length(connList); ++i) {
         ForeignServerConnection *foreignServerConn = list_nth(connList, i);
+        if (foreignServerConn->conn == NULL) {
+            continue;
+        }
 
         PGresult *res = FetchPGresultAndMark(foreignServerConn->conn);
         while (res != NULL) {

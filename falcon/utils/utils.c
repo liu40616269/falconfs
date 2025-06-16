@@ -31,6 +31,7 @@
 #include "utils/relcache.h"
 #include "utils/snapmgr.h"
 #include "utils/varlena.h"
+#include "commands/extension.h"
 
 #include "dir_path_shmem/dir_path_hash.h"
 #include "metadb/directory_table.h"
@@ -74,6 +75,18 @@ void GetRelationOid(const char *relationName, Oid *relOid)
             FALCON_ELOG_ERROR_EXTENDED(PROGRAM_ERROR, "GetRelationOid failed for %s!", relationName);
         }
     }
+}
+
+bool CheckFalconHasBeenLoaded(void)
+{
+    if (IsBinaryUpgrade) {
+        return false;
+    }
+    Oid falconExtensionOid = get_extension_oid("falcon", true);
+    if (falconExtensionOid == InvalidOid || (creating_extension && CurrentExtensionObject == falconExtensionOid)) {
+        return false;
+    }
+    return true;
 }
 
 static void InitializeForeignServerTableScanCache(void);

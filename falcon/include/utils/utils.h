@@ -53,6 +53,7 @@ typedef enum CachedRelationType {
 extern Oid CachedRelationOid[LAST_CACHED_RELATION_TYPE];
 void GetRelationOid(const char *relationName, Oid *relOid);
 
+bool CheckFalconHasBeenLoaded(void);
 bool CheckWhetherTargetExistInIndex(Relation heap, Relation index, ScanKeyData *scanKeys);
 
 void SetUpScanCaches(void);

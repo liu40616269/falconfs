@@ -8,6 +8,7 @@
 #include <ranges>
 
 #include "cm/falcon_cm.h"
+#include "log/logging.h"
 #include "utils.h"
 
 Router::Router(const ServerIdentifier &coordinator)
@@ -119,6 +120,8 @@ std::shared_ptr<Connection> Router::TryToUpdateCNConn(std::shared_ptr<Connection
 {
     std::unique_lock<std::shared_mutex> lock(coordinatorMtx);
     if (!(conn->server == coordinatorConn->server)) {
+        FALCON_LOG(LOG_WARNING) << "CN info has already updated, ip: " << coordinatorConn->server.ip
+                                << ", port: " << coordinatorConn->server.port;
         return coordinatorConn;
     }
     std::string coordinatorIp;
@@ -135,9 +138,13 @@ std::shared_ptr<Connection> Router::TryToUpdateCNConn(std::shared_ptr<Connection
     } while ((cnt <= RETRY_CNT) && (ret != RETURN_OK || newCoordinatorServer == conn->server));
 
     if (ret != RETURN_OK || newCoordinatorServer == conn->server) {
+        FALCON_LOG(LOG_WARNING) << "CN info has not changed, ip: " << coordinatorConn->server.ip
+                                << ", port: " << coordinatorConn->server.port;
         return coordinatorConn;
     }
     coordinatorConn = std::make_shared<Connection>(newCoordinatorServer);
+    FALCON_LOG(LOG_WARNING) << "Update CN info, ip: " << coordinatorConn->server.ip
+                            << ", port: " << coordinatorConn->server.port;
     return coordinatorConn;
 }
 
@@ -162,6 +169,8 @@ std::shared_ptr<Connection> Router::TryToUpdateWorkerConn(std::shared_ptr<Connec
             throw std::runtime_error("not found server by id.");
         }
         if (!(newConn->server == conn->server)) {
+            FALCON_LOG(LOG_WARNING) << "DN" << newConn->server.id << " info has updated, ip: " << newConn->server.ip
+                                    << ", port: " << newConn->server.port;
             return newConn;
         }
         sleep(SLEEPTIME);
@@ -173,6 +182,9 @@ std::shared_ptr<Connection> Router::TryToUpdateWorkerConn(std::shared_ptr<Connec
         }
         ++cnt;
     } while (cnt <= RETRY_CNT && newConn->server == conn->server);
+
+    FALCON_LOG(LOG_WARNING) << "DN" << conn->server.id << " info has not changed, ip: " << conn->server.ip
+                            << ", port: " << conn->server.port;
 
     return conn;
 }
