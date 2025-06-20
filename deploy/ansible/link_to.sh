@@ -16,10 +16,13 @@ DST="$2"
 LINK_RECORD_FILE="$SRC"/link_record_$(date +%Y%m%d_%H%M%S).log
 
 if [ ! -d "$SRC" ]; then
-    echo "Source directory '$SRC' does not exist or is not a directory." >&2
+    echo "Source directory '$SRC' is not a directory." >&2
     exit 2
 fi
 
+if [ ! -e "$DST" ]; then
+    mkdir -p "$DST"
+fi
 if [ ! -d "$DST" ]; then
     echo "Destination directory '$DST' does not exist or is not a directory." >&2
     exit 3

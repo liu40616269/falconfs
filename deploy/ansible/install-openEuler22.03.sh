@@ -1,3 +1,6 @@
+#!/bin/bash
+set -euo pipefail
+
 PREFIX=${1:-/usr/local/falconfs}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -5,7 +8,11 @@ echo "Using prefix: $PREFIX"
 echo "Script directory: $SCRIPT_DIR"
 
 export PATH="$PREFIX/bin":$PATH
-export LD_LIBRARY_PATH="$PREFIX/lib64":$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH="$PREFIX/lib64:$PREFIX/lib":$LD_LIBRARY_PATH
+
+echo "$PREFIX/lib64" | tee /etc/ld.so.conf.d/00-falconfs.conf
+echo "$PREFIX/lib" | tee -a /etc/ld.so.conf.d/00-falconfs.conf
+ldconfig
 
 # ----------------- gcc --------------------#
 pushd .
@@ -29,6 +36,7 @@ popd
 pushd .
 
 CMAKE_VERSION=3.28.6
+sudo yum install -y openssl-devel
 wget https://cmake.org/files/v3.28/cmake-$CMAKE_VERSION.tar.gz
 tar -xvf cmake-$CMAKE_VERSION.tar.gz
 cd cmake-$CMAKE_VERSION
@@ -40,7 +48,6 @@ bash "$SCRIPT_DIR/link_to.sh" $PREFIX/cmake-$CMAKE_VERSION $PREFIX
 
 popd 
 
-
 # ----------------- absl --------------------#
 pushd .
 
@@ -49,7 +56,7 @@ wget https://github.com/abseil/abseil-cpp/releases/download/$ABSL_VERSION/abseil
 tar -zxvf abseil-cpp-$ABSL_VERSION.tar.gz
 cd abseil-cpp-$ABSL_VERSION
 cmake -B build -DCMAKE_INSTALL_PREFIX=$PREFIX/absl-$ABSL_VERSION -DBUILD_TESTING=ON
-cmake --build build -j 4
+cmake --build build -j $(nproc)
 cmake --install build
 
 bash "$SCRIPT_DIR/link_to.sh" $PREFIX/absl-$ABSL_VERSION $PREFIX
@@ -79,21 +86,23 @@ wget https://github.com/google/flatbuffers/archive/refs/tags/v$FLATBUFFER_VERSIO
 tar -xvf v$FLATBUFFER_VERSION.tar.gz
 cd flatbuffers-$FLATBUFFER_VERSION
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX/flatbuffers-$FLATBUFFER_VERSION
-cmake --build build -j4
+cmake --build build -j $(nproc)
 cmake --install build
 
 bash "$SCRIPT_DIR/link_to.sh" $PREFIX/flatbuffers-$FLATBUFFER_VERSION $PREFIX
+
+popd
 
 # ----------------- brpc --------------------#
 pushd .
 
 #export LDFLAGS="-L$PREFIX/lib64 -labsl_base -labsl_log_severity -labsl_throw_delegate"
 BRPC_VERSION=1.12.1
-yum install -y openssl-devel gflags-devel leveldb leveldb-devel glog glog-devel libibverbs libibverbs-utils libibverbs-devel
+yum install -y gflags-devel leveldb leveldb-devel glog glog-devel libibverbs libibverbs-utils libibverbs-devel
 wget https://github.com/apache/brpc/archive/refs/tags/$BRPC_VERSION.tar.gz
 tar -zxvf $BRPC_VERSION.tar.gz
 cd brpc-$BRPC_VERSION && mkdir build && cd build
-cmake -DWITH_GLOG=ON -DWITH_RDMA=ON .. -DCMAKE_INSTALL_PREFIX=$PREFIX/brpc-$BRPC_VERSION
+cmake -DWITH_GLOG=ON -DWITH_RDMA=ON .. -DCMAKE_INSTALL_PREFIX=$PREFIX/brpc-$BRPC_VERSION -DCMAKE_PREFIX_PATH=$PREFIX
 make -j$(nproc)
 make install
 
@@ -199,9 +208,6 @@ popd
 pushd .
 
 yum install -y ninja-build readline-devel fuse fuse-devel fmt-devel
-echo "$PREFIX/lib64" | tee /etc/ld.so.conf.d/00-falconfs.conf
-echo "$PREFIX/lib" | tee -a /etc/ld.so.conf.d/00-falconfs.conf
-ldconfig
 
 popd
 
