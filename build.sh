@@ -18,15 +18,12 @@ export CONFIG_FILE="$FALCONFS_DIR/config/config.json"
 
 # Set build directory
 BUILD_DIR="${BUILD_DIR:-$FALCONFS_DIR/build}"
+FALCONFS_INSTALL_DIR="${FALCONFS_INSTALL_DIR:-/usr/local/falconfs}"
 
 # Set default install directory
-if [[ -n "${FALCONFS_INSTALL_DIR:-}" ]]; then
-    PG_INSTALL_DIR="$FALCONFS_INSTALL_DIR/metadb"
-    FALCON_CLIENT_INSTALL_DIR="$FALCONFS_INSTALL_DIR/falcon_client"
-else
-    PG_INSTALL_DIR="${PG_INSTALL_DIR:-$HOME/metadb}"
-    FALCON_CLIENT_INSTALL_DIR="${FALCON_CLIENT_INSTALL_DIR:-$HOME/falcon_client}"
-fi
+PG_INSTALL_DIR="$FALCONFS_INSTALL_DIR/metadb"
+FALCON_CLIENT_INSTALL_DIR="$FALCONFS_INSTALL_DIR/falcon_client"
+PYTHON_SDK_INSTALL_DIR="$FALCONFS_INSTALL_DIR/python_interface"
 
 gen_proto() {
     mkdir -p "$BUILD_DIR"
@@ -118,6 +115,13 @@ install_falcon_client() {
     echo "Installing FalconFS client to $FALCON_CLIENT_INSTALL_DIR..."
     cd "$BUILD_DIR" && ninja install
     echo "FalconFS client installed to $FALCON_CLIENT_INSTALL_DIR"
+}
+
+install_falcon_python_sdk() {
+    echo "Installing FalconFS python sdk to $PYTHON_SDK_INSTALL_DIR..."
+    rm -rf "$PYTHON_SDK_INSTALL_DIR"
+    cp -r "$FALCONFS_DIR/python_interface" "$PYTHON_SDK_INSTALL_DIR"
+    echo "FalconFS python sdk installed to $PYTHON_SDK_INSTALL_DIR"
 }
 
 clean_dist() {
@@ -344,6 +348,7 @@ test)
 install)
     install_pg
     install_falcon_client
+    install_falcon_python_sdk
     ;;
 *)
     print_help "build"
