@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+cd /tmp
+
 PREFIX=${1:-/usr/local/falconfs}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -9,10 +11,10 @@ echo "Script directory: $SCRIPT_DIR"
 
 export PATH="$PREFIX/bin":$PATH
 export LD_LIBRARY_PATH="$PREFIX/lib64:$PREFIX/lib":$LD_LIBRARY_PATH
+export CMAKE_PREFIX_PATH="$PREFIX":$CMAKE_PREFIX_PATH
 
 echo "$PREFIX/lib64" | tee /etc/ld.so.conf.d/00-falconfs.conf
 echo "$PREFIX/lib" | tee -a /etc/ld.so.conf.d/00-falconfs.conf
-ldconfig
 
 # ----------------- gcc --------------------#
 pushd .
@@ -24,11 +26,14 @@ tar -zxvf gcc-$GCC_VERSION.tar.gz
 mv gcc-releases-gcc-$GCC_VERSION gcc-$GCC_VERSION
 cd ./gcc-$GCC_VERSION/ && ./contrib/download_prerequisites
 mkdir build && cd build
-../configure --prefix=$PREFIX/gcc-$GCC_VERSION --enable-bootstrap --enable-threads=posix --enable--long-long --enable-checking=release --enable-language=c,c++ --disable-multilib
+../configure --prefix=$PREFIX/third_party/gcc-$GCC_VERSION --enable-bootstrap --enable-threads=posix --enable--long-long --enable-checking=release --enable-language=c,c++ --disable-multilib
 make -j$(nproc)
 make install
+ln -s gcc $PREFIX/bin/cc
 
-bash "$SCRIPT_DIR/link_to.sh" $PREFIX/gcc-$GCC_VERSION $PREFIX
+bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/gcc-$GCC_VERSION $PREFIX
+
+ldconfig
 
 popd
 
@@ -40,11 +45,11 @@ sudo yum install -y openssl-devel
 wget https://cmake.org/files/v3.28/cmake-$CMAKE_VERSION.tar.gz
 tar -xvf cmake-$CMAKE_VERSION.tar.gz
 cd cmake-$CMAKE_VERSION
-./bootstrap --prefix=$PREFIX/cmake-$CMAKE_VERSION
+./bootstrap --prefix=$PREFIX/third_party/cmake-$CMAKE_VERSION
 make -j$(nproc)
 make install
 
-bash "$SCRIPT_DIR/link_to.sh" $PREFIX/cmake-$CMAKE_VERSION $PREFIX
+bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/cmake-$CMAKE_VERSION $PREFIX
 
 popd 
 
@@ -55,11 +60,11 @@ ABSL_VERSION=20250512.1
 wget https://github.com/abseil/abseil-cpp/releases/download/$ABSL_VERSION/abseil-cpp-$ABSL_VERSION.tar.gz
 tar -zxvf abseil-cpp-$ABSL_VERSION.tar.gz
 cd abseil-cpp-$ABSL_VERSION
-cmake -B build -DCMAKE_INSTALL_PREFIX=$PREFIX/absl-$ABSL_VERSION -DBUILD_TESTING=ON
+cmake -B build -DCMAKE_INSTALL_PREFIX=$PREFIX/third_party/absl-$ABSL_VERSION -DBUILD_TESTING=ON
 cmake --build build -j $(nproc)
 cmake --install build
 
-bash "$SCRIPT_DIR/link_to.sh" $PREFIX/absl-$ABSL_VERSION $PREFIX
+bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/absl-$ABSL_VERSION $PREFIX
 
 popd
 
@@ -70,11 +75,11 @@ PROTOBUF_VERSION=3.17.3
 wget https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOBUF_VERSION/protobuf-cpp-$PROTOBUF_VERSION.tar.gz
 tar -zxvf protobuf-cpp-$PROTOBUF_VERSION.tar.gz
 cd protobuf-$PROTOBUF_VERSION
-./configure --prefix=$PREFIX/protobuf-$PROTOBUF_VERSION
+./configure --prefix=$PREFIX/third_party/protobuf-$PROTOBUF_VERSION
 make -j$(nproc)
 make install
 
-bash "$SCRIPT_DIR/link_to.sh" $PREFIX/protobuf-$PROTOBUF_VERSION $PREFIX
+bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/protobuf-$PROTOBUF_VERSION $PREFIX
 
 popd
 
@@ -85,11 +90,11 @@ FLATBUFFER_VERSION=25.2.10
 wget https://github.com/google/flatbuffers/archive/refs/tags/v$FLATBUFFER_VERSION.tar.gz
 tar -xvf v$FLATBUFFER_VERSION.tar.gz
 cd flatbuffers-$FLATBUFFER_VERSION
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX/flatbuffers-$FLATBUFFER_VERSION
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX/third_party/flatbuffers-$FLATBUFFER_VERSION
 cmake --build build -j $(nproc)
 cmake --install build
 
-bash "$SCRIPT_DIR/link_to.sh" $PREFIX/flatbuffers-$FLATBUFFER_VERSION $PREFIX
+bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/flatbuffers-$FLATBUFFER_VERSION $PREFIX
 
 popd
 
@@ -102,11 +107,14 @@ yum install -y gflags-devel leveldb leveldb-devel glog glog-devel libibverbs lib
 wget https://github.com/apache/brpc/archive/refs/tags/$BRPC_VERSION.tar.gz
 tar -zxvf $BRPC_VERSION.tar.gz
 cd brpc-$BRPC_VERSION && mkdir build && cd build
-cmake -DWITH_GLOG=ON -DWITH_RDMA=ON .. -DCMAKE_INSTALL_PREFIX=$PREFIX/brpc-$BRPC_VERSION -DCMAKE_PREFIX_PATH=$PREFIX
+cmake .. \
+    -DWITH_GLOG=ON -DWITH_RDMA=ON \
+    -DCMAKE_INSTALL_PREFIX=$PREFIX/third_party/brpc-$BRPC_VERSION \
+    -DCMAKE_PREFIX_PATH=$PREFIX
 make -j$(nproc)
 make install
 
-bash "$SCRIPT_DIR/link_to.sh" $PREFIX/brpc-$BRPC_VERSION $PREFIX
+bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/brpc-$BRPC_VERSION $PREFIX
 
 popd
 
@@ -121,12 +129,12 @@ cd zookeeper-release-$ZOOKEEPER_VERSION/zookeeper-jute
 mvn clean install -DskipTests
 cd ../zookeeper-client/zookeeper-client-c
 mvn clean install -DskipTests
-mkdir -p $PREFIX/zookeeper-$ZOOKEEPER_VERSION/include/zookeeper $PREFIX/zookeeper-$ZOOKEEPER_VERSION/lib64
-cp -r generated/*.h $PREFIX/zookeeper-$ZOOKEEPER_VERSION/include/zookeeper
-cp -r include/*.h $PREFIX/zookeeper-$ZOOKEEPER_VERSION/include/zookeeper
-cp -d target/c/lib/libzookeeper* $PREFIX/zookeeper-$ZOOKEEPER_VERSION/lib64
+mkdir -p $PREFIX/third_party/zookeeper-$ZOOKEEPER_VERSION/include/zookeeper $PREFIX/third_party/zookeeper-$ZOOKEEPER_VERSION/lib64
+cp -r generated/*.h $PREFIX/third_party/zookeeper-$ZOOKEEPER_VERSION/include/zookeeper
+cp -r include/*.h $PREFIX/third_party/zookeeper-$ZOOKEEPER_VERSION/include/zookeeper
+cp -d target/c/lib/libzookeeper* $PREFIX/third_party/zookeeper-$ZOOKEEPER_VERSION/lib64
 
-bash "$SCRIPT_DIR/link_to.sh" $PREFIX/zookeeper-$ZOOKEEPER_VERSION $PREFIX
+bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/zookeeper-$ZOOKEEPER_VERSION $PREFIX
 
 popd
 
@@ -139,20 +147,25 @@ tar -zxvf v$OBS_VERSION.tar.gz
 cd huaweicloud-sdk-c-obs-$OBS_VERSION
 sed -i '/if(NOT DEFINED OPENSSL_INC_DIR)/,+5d' CMakeLists.txt
 sed -i '/OPENSSL/d' CMakeLists.txt
+if [ "$(uname -m)" = "aarch64" ]; then
+    OSB_BUILD_SCRIPT="build_aarch.sh"
+else
+    OSB_BUILD_SCRIPT="build.sh"
+fi
 cd source/eSDK_OBS_API/eSDK_OBS_API_C++ &&
-    export SPDLOG_VERSION=spdlog-1.12.0 && bash build.sh sdk &&
-    mkdir -p $PREFIX/obs-$OBS_VERSION &&
-    tar zxvf sdk.tgz -C $PREFIX/obs-$OBS_VERSION &&
-    rm $PREFIX/obs-$OBS_VERSION/lib/libcurl.so* &&
-    rm $PREFIX/obs-$OBS_VERSION/lib/libssl.so* &&
-    rm $PREFIX/obs-$OBS_VERSION/lib/libcrypto.so* &&
-    rm -rf $PREFIX/obs-$OBS_VERSION/demo &&
-    rm $PREFIX/obs-$OBS_VERSION/readme.txt
-ln -s libiconv.so $PREFIX/obs-$OBS_VERSION/lib/libiconv.so.0
+    export SPDLOG_VERSION=spdlog-1.12.0 && bash $OSB_BUILD_SCRIPT sdk &&
+    mkdir -p $PREFIX/third_party/obs-$OBS_VERSION &&
+    tar zxvf sdk.tgz -C $PREFIX/third_party/obs-$OBS_VERSION &&
+    rm -f $PREFIX/third_party/obs-$OBS_VERSION/lib/libcurl.so* &&
+    rm -f $PREFIX/third_party/obs-$OBS_VERSION/lib/libssl.so* &&
+    rm -f $PREFIX/third_party/obs-$OBS_VERSION/lib/libcrypto.so* &&
+    rm -rf $PREFIX/third_party/obs-$OBS_VERSION/demo &&
+    rm -f $PREFIX/third_party/obs-$OBS_VERSION/readme.txt
+ln -s libiconv.so $PREFIX/third_party/obs-$OBS_VERSION/lib/libiconv.so.0
 
-bash "$SCRIPT_DIR/link_to.sh" $PREFIX/zookeeper-$ZOOKEEPER_VERSION $PREFIX
+bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/obs-$OBS_VERSION $PREFIX
 # compatible with legacy code
-bash "$SCRIPT_DIR/link_to.sh" $PREFIX/zookeeper-$ZOOKEEPER_VERSION $PREFIX/obs
+bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/obs-$OBS_VERSION /usr/local/obs
 
 popd
 
@@ -165,11 +178,11 @@ tar -xzvf $JSONCPP_VERSION.tar.gz
 cd jsoncpp-$JSONCPP_VERSION
 sed -i 's/set(CMAKE_CXX_STANDARD 11)/set(CMAKE_CXX_STANDARD 17)/' CMakeLists.txt
 mkdir build && cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX/jsoncpp-$JSONCPP_VERSION
+cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX/third_party/jsoncpp-$JSONCPP_VERSION
 make -j$(nproc)
 make install
 
-bash "$SCRIPT_DIR/link_to.sh" $PREFIX/jsoncpp-$JSONCPP_VERSION $PREFIX
+bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/jsoncpp-$JSONCPP_VERSION $PREFIX
 
 popd
 
@@ -181,11 +194,11 @@ wget https://github.com/google/googletest/releases/download/v$GTEST_VERSION/goog
 tar -xvf googletest-$GTEST_VERSION.tar.gz
 cd googletest-$GTEST_VERSION
 mkdir build && cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX/googletest-$GTEST_VERSION
+cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX/third_party/googletest-$GTEST_VERSION
 make -j$(nproc)
 make install
 
-bash "$SCRIPT_DIR/link_to.sh" $PREFIX/googletest-$GTEST_VERSION $PREFIX
+bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/googletest-$GTEST_VERSION $PREFIX
 
 popd
 
@@ -196,18 +209,23 @@ PYTHON_VERSION=3.11.13
 wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tar.xz
 tar -xvf Python-$PYTHON_VERSION.tar.xz
 cd Python-$PYTHON_VERSION
-./configure --prefix=$PREFIX/python-$PYTHON_VERSION --enable-shared --enable-optimizations
+./configure --prefix=$PREFIX/third_party/python-$PYTHON_VERSION --enable-shared --enable-optimizations
 make -j$(nproc)
 make install
 
-bash "$SCRIPT_DIR/link_to.sh" $PREFIX/python-$PYTHON_VERSION $PREFIX
+bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/python-$PYTHON_VERSION $PREFIX
 
 popd
 
 # ----------------- falconfs --------------------#
-pushd .
-
 yum install -y ninja-build readline-devel fuse fuse-devel fmt-devel
+ldconfig
 
-popd
-
+echo "-------------------------------------------------------------"
+echo "Please export environment variables:"
+echo ""
+echo "export FALCONFS_INSTALL_DIR=\"$FALCONFS_INSTALL_DIR\""
+echo "export PATH=\$FALCONFS_INSTALL_DIR/bin:\$PATH"
+echo "export LD_LIBRARY_PATH=\$FALCONFS_INSTALL_DIR/lib64:\$FALCONFS_INSTALL_DIR/lib:\$LD_LIBRARY_PATH"
+echo ""
+echo "-------------------------------------------------------------"

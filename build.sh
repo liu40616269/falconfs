@@ -20,8 +20,13 @@ export CONFIG_FILE="$FALCONFS_DIR/config/config.json"
 BUILD_DIR="${BUILD_DIR:-$FALCONFS_DIR/build}"
 
 # Set default install directory
-PG_INSTALL_DIR="${PG_INSTALL_DIR:-$HOME/metadb}"
-FALCON_CLIENT_INSTALL_DIR="${FALCON_CLIENT_INSTALL_DIR:-$HOME/falcon_client}"
+if [[ -n "${FALCONFS_INSTALL_DIR:-}" ]]; then
+    PG_INSTALL_DIR="$FALCONFS_INSTALL_DIR/metadb"
+    FALCON_CLIENT_INSTALL_DIR="$FALCONFS_INSTALL_DIR/falcon_client"
+else
+    PG_INSTALL_DIR="${PG_INSTALL_DIR:-$HOME/metadb}"
+    FALCON_CLIENT_INSTALL_DIR="${FALCON_CLIENT_INSTALL_DIR:-$HOME/falcon_client}"
+fi
 
 gen_proto() {
     mkdir -p "$BUILD_DIR"

@@ -22,7 +22,23 @@ if(WITH_RDMA)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_RDMA")
 endif()
 
+add_compile_options(
+    -Wno-deprecated
+    -Wno-deprecated-declarations
+    -Wno-sign-compare
+)
+
 # ==================== Dependencies =================
+if(DEFINED ENV{FALCONFS_INSTALL_DIR})
+    include_directories($ENV{FALCONFS_INSTALL_DIR}/include)
+    link_directories($ENV{FALCONFS_INSTALL_DIR}/lib64 $ENV{FALCONFS_INSTALL_DIR}/lib)
+    set(CMAKE_PREFIX_PATH "$ENV{FALCONFS_INSTALL_DIR};${CMAKE_PREFIX_PATH}" CACHE STRING "" FORCE)
+endif()
+add_compile_options(
+    -Wno-deprecated-declarations
+    -Wno-sign-compare
+)
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 find_package(BRPC REQUIRED)
 

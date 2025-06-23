@@ -40,14 +40,28 @@ is_python_lib_dir() {
     fi
 }
 
+is_cmake_special_dir() {
+    local path="$1"
+    local base=$(basename "$path")
+    local parent_base=$(basename "$(dirname "$path")")
+
+    if [[ "$base" =~ ^cmake-[0-9]+\.[0-9]+$ && ("$parent_base" == "share" || "$parent_base" == "doc") ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 link_recursive() {
     local src_path="$1"
     local dst_path="$2"
 
-    # for python
-    if is_python_lib_dir "$src_path"; then
+    # for special directories
+    if is_python_lib_dir "$src_path" || is_cmake_special_dir "$src_path"; then
         if [ ! -e "$dst_path" ]; then
-            ln -s "$src_path" "$dst_path"
+            local rel_link
+            rel_link=$(realpath --relative-to="$(dirname "$dst_path")" "$src_path")
+            ln -s "$rel_link" "$dst_path"
             echo "Linked site-packages directory: $src_path -> $dst_path"
             echo "$dst_path" >> "$LINK_RECORD_FILE"
         else
