@@ -184,13 +184,15 @@ install_obs() {
     cd huaweicloud-sdk-c-obs-$OBS_VERSION
     sed -i '/if(NOT DEFINED OPENSSL_INC_DIR)/,+5d' CMakeLists.txt
     sed -i '/OPENSSL/d' CMakeLists.txt
+    sed -i "s|SET(CMAKE_SKIP_RPATH TRUE)|SET(CMAKE_BUILD_RPATH $PREFIX/lib64:$PREFIX/lib)|g" CMakeLists.txt
     if [ "$(uname -m)" = "aarch64" ]; then
         OSB_BUILD_SCRIPT="build_aarch.sh"
     else
         OSB_BUILD_SCRIPT="build.sh"
     fi
     cd source/eSDK_OBS_API/eSDK_OBS_API_C++ &&
-        export SPDLOG_VERSION=spdlog-1.12.0 && bash $OSB_BUILD_SCRIPT sdk &&
+        export SPDLOG_VERSION=spdlog-1.12.0 && \
+        bash $OSB_BUILD_SCRIPT sdk &&
         mkdir -p $PREFIX/third_party/obs-$OBS_VERSION &&
         tar zxvf sdk.tgz -C $PREFIX/third_party/obs-$OBS_VERSION &&
         rm -f $PREFIX/third_party/obs-$OBS_VERSION/lib/libcurl.so* &&
@@ -216,7 +218,8 @@ install_jsoncpp() {
     cd jsoncpp-$JSONCPP_VERSION
     sed -i 's/set(CMAKE_CXX_STANDARD 11)/set(CMAKE_CXX_STANDARD 17)/' CMakeLists.txt
     mkdir build && cd build
-    cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX/third_party/jsoncpp-$JSONCPP_VERSION
+    cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX/third_party/jsoncpp-$JSONCPP_VERSION \
+        -DCMAKE_INSTALL_RPATH=$PREFIX/lib64:$PREFIX/lib
     make -j$(nproc)
     make install
 
