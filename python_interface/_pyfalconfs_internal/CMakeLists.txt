@@ -13,7 +13,7 @@ target_include_directories(_pyfalconfs_internal PUBLIC
 )
 target_link_options(_pyfalconfs_internal PRIVATE -static-libstdc++ -static-libgcc)
 target_link_libraries(_pyfalconfs_internal PUBLIC 
-    Python3::Python
+    ${Python3_LIBRARIES}
     FalconClient
     FalconStore
     pthread

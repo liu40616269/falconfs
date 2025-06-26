@@ -41,8 +41,8 @@ export PATH="$PREFIX/bin":${PATH:-}
 export LD_LIBRARY_PATH="$PREFIX/lib64:$PREFIX/lib":${LD_LIBRARY_PATH:-}
 export CMAKE_PREFIX_PATH="$PREFIX":${CMAKE_PREFIX_PATH:-}
 
-echo "$PREFIX/lib64" | tee /etc/ld.so.conf.d/00-falconfs.conf
-echo "$PREFIX/lib" | tee -a /etc/ld.so.conf.d/00-falconfs.conf
+#echo "$PREFIX/lib64" | tee /etc/ld.so.conf.d/00-falconfs.conf
+#echo "$PREFIX/lib" | tee -a /etc/ld.so.conf.d/00-falconfs.conf
 
 install_gcc() {
     pushd .
@@ -74,7 +74,10 @@ install_cmake() {
     wget https://cmake.org/files/v3.28/cmake-$CMAKE_VERSION.tar.gz
     tar -xvf cmake-$CMAKE_VERSION.tar.gz
     cd cmake-$CMAKE_VERSION
-    ./bootstrap --prefix=$PREFIX/third_party/cmake-$CMAKE_VERSION
+    ./bootstrap --prefix=$PREFIX/third_party/cmake-$CMAKE_VERSION \
+        -- \
+        -DCMAKE_INSTALL_RPATH=$PREFIX/lib64:$PREFIX/lib \
+        -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON
     make -j$(nproc)
     make install
 
@@ -250,7 +253,11 @@ install_python() {
     make -j$(nproc)
     make install
 
-    bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/python-$PYTHON_VERSION $PREFIX
+    # We avoid linking Python to $PREFIX/lib to prevent rpath from forcing the use of an
+    # unintended libpython.so, which may conflict with the user's Python environment. At build
+    # time, this Python is used, but it is not required at runtime. The user should ensure that 
+    # its version matches the one used at runtime.
+    bash "$SCRIPT_DIR/link_third_party_to.sh" $PREFIX/third_party/python-$PYTHON_VERSION $PREFIX/python
 
     popd
 }
@@ -297,11 +304,9 @@ ldconfig
 
 cat <<EOF
 -------------------------------------------------------------
-Please export environment variables:
+Please export environment variables when building:
 
 export FALCONFS_INSTALL_DIR=$PREFIX
-export PATH=\$FALCONFS_INSTALL_DIR/bin:\$PATH
-export LD_LIBRARY_PATH=\$FALCONFS_INSTALL_DIR/lib64:\$FALCONFS_INSTALL_DIR/lib:\$LD_LIBRARY_PATH
 
 If you plan to copy the compiled binaries to another machine, please make sure to install the following system dependencies on the target machine:
 
