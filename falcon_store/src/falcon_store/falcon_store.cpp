@@ -1256,17 +1256,41 @@ int FalconStore::StatFS(struct statvfs *vfsbuf)
         return StatFsStorage(vfsbuf);
     }
 
-    // statfs locally
-    int ret = statvfs(dataPath.c_str(), vfsbuf);
-    if (ret != 0) {
-        int err = errno;
-        FALCON_LOG(LOG_ERROR) << "StatFS failed: " << strerror(errno);
-        return -err;
-    }
+    int ret = 0;
+    vfsbuf->f_bsize = 4096;
+    vfsbuf->f_frsize = 4096;
+    vfsbuf->f_blocks = 0;
+    vfsbuf->f_bfree = 0;
+    vfsbuf->f_bavail = 0;
+    vfsbuf->f_files = 0;
+    vfsbuf->f_ffree = 0;
+    vfsbuf->f_favail = 0;
+    vfsbuf->f_fsid = 3645364;
+    vfsbuf->f_flag = 4096;
+    vfsbuf->f_namemax = 255;
+
     // statfs remotelly by grpc
     std::vector<int> nodeVector = StoreNode::GetInstance()->GetAllNodeId();
     for (int nodeId : nodeVector) {
         if (StoreNode::GetInstance()->IsLocal(nodeId)) {
+            // statfs locally
+            struct statvfs remoteVfsBuf;
+            errno_t err = memset_s(&remoteVfsBuf, sizeof(remoteVfsBuf), 0, sizeof(remoteVfsBuf));
+            if (err != 0) {
+                FALCON_LOG(LOG_ERROR) << "Secure func failed: " << err;
+                return -EIO;
+            }
+            ret = statvfs(dataPath.c_str(), &remoteVfsBuf);
+            if (ret != 0) {
+                int err = errno;
+                FALCON_LOG(LOG_ERROR) << "StatFS failed: " << strerror(errno);
+                return -err;
+            }
+            vfsbuf->f_blocks += remoteVfsBuf.f_blocks;
+            vfsbuf->f_bfree += remoteVfsBuf.f_bfree;
+            vfsbuf->f_bavail += remoteVfsBuf.f_bavail;
+            vfsbuf->f_files += remoteVfsBuf.f_files;
+            vfsbuf->f_ffree += remoteVfsBuf.f_ffree;
             continue;
         }
         std::shared_ptr<FalconIOClient> falconIOClient = StoreNode::GetInstance()->GetRpcConnection(nodeId);

@@ -501,56 +501,35 @@ int main(int argc, char *argv[])
     std::string serverIp = config->GetString(FalconPropertyKey::FALCON_SERVER_IP);
     std::string serverPort = config->GetString(FalconPropertyKey::FALCON_SERVER_PORT);
     g_persist = config->GetBool(FalconPropertyKey::FALCON_PERSIST);
-    bool isOnlyClient = config->GetBool(FalconPropertyKey::FALCON_ONLY_CLIENT);
-
-    if (!isOnlyClient) {
-        falcon::brpc_io::RemoteIOServer &server = falcon::brpc_io::RemoteIOServer::GetInstance();
-        server.endPoint = FLAGS_rpc_endpoint;
-        std::println("brpc endpoint = {}", server.endPoint);
-        std::thread brpcServerThread(&falcon::brpc_io::RemoteIOServer::Run, &server);
-        {
-            std::unique_lock<std::mutex> lk(server.mutexStart);
-            server.cvStart.wait(lk, [&server]() { return server.isStarted; });
-        }
-
-#ifdef ZK_INIT
-        std::println("Initialize with ZK");
-        const char *zkEndPoint = std::getenv("zk_endpoint");
-        if (zkEndPoint == nullptr) {
-            std::println(stderr, "Fetch zk endpoint failed!");
-            return -1;
-        }
-        ret = FalconInitWithZK(zkEndPoint);
-#else
-        ret = FalconInit(serverIp, std::stoi(serverPort));
-#endif
-        if (ret != FALCON_SUCCESS) {
-            server.Stop();
-            if (brpcServerThread.joinable()) {
-                brpcServerThread.join();
-            }
-            std::println(stderr, "Falcon cluster init failed");
-            return ret;
-        }
-        server.SetReadyFlag();
-
-    } else {
-#ifdef ZK_INIT
-        std::println("Initialize with ZK");
-        const char *zkEndPoint = std::getenv("zk_endpoint");
-        if (zkEndPoint == nullptr) {
-            std::println(stderr, "Fetch zk endpoint failed!");
-            return -1;
-        }
-        ret = FalconInitWithZK(zkEndPoint);
-#else
-        ret = FalconInit(serverIp, std::stoi(serverPort));
-#endif
-        if (ret != FALCON_SUCCESS) {
-            std::println(stderr, "Falcon cluster init failed");
-            return ret;
-        }
+    falcon::brpc_io::RemoteIOServer &server = falcon::brpc_io::RemoteIOServer::GetInstance();
+    server.endPoint = FLAGS_rpc_endpoint;
+    std::println("brpc endpoint = {}", server.endPoint);
+    std::thread brpcServerThread(&falcon::brpc_io::RemoteIOServer::Run, &server);
+    {
+        std::unique_lock<std::mutex> lk(server.mutexStart);
+        server.cvStart.wait(lk, [&server]() { return server.isStarted; });
     }
+
+#ifdef ZK_INIT
+    std::println("Initialize with ZK");
+    const char *zkEndPoint = std::getenv("zk_endpoint");
+    if (zkEndPoint == nullptr) {
+        std::println(stderr, "Fetch zk endpoint failed!");
+        return -1;
+    }
+    ret = FalconInitWithZK(zkEndPoint);
+#else
+    ret = FalconInit(serverIp, std::stoi(serverPort));
+#endif
+    if (ret != FALCON_SUCCESS) {
+        server.Stop();
+        if (brpcServerThread.joinable()) {
+            brpcServerThread.join();
+        }
+        std::println(stderr, "Falcon cluster init failed");
+        return ret;
+    }
+    server.SetReadyFlag();
 
     /* Start stats thread */
     bool statMax = config->GetBool(FalconPropertyKey::FALCON_STAT_MAX);
