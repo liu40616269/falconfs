@@ -53,7 +53,7 @@ int FalconStore::InitStore()
     isInference = config->GetBool(FalconPropertyKey::FALCON_IS_INFERENCE);
     toLocal = config->GetBool(FalconPropertyKey::FALCON_TO_LOCAL);
     std::string mountPath = config->GetString(FalconPropertyKey::FALCON_MOUNT_PATH);
-
+    bool isOnlyClient = config->GetBool(FalconPropertyKey::FALCON_ONLY_CLIENT);
     FALCON_LOG(LOG_INFO) << "falcon_cache rootPath: " << rootPath;
 
     dataPath = rootPath;
@@ -68,18 +68,20 @@ int FalconStore::InitStore()
     }
 
     READ_BIGFILE_SIZE = bigFileReadSize;
-    SetRootPath(rootPath);
-    SetTotalDirectory(totalDirectory);
-    float diskFreeRatio = 0;
-    float bgDiskFreeRatio = 0;
-    if (storageThreshold < 1) {
-        diskFreeRatio = 1.0 - storageThreshold;
-        bgDiskFreeRatio = 1.1 - storageThreshold;
-    }
-    ret = DiskCache::GetInstance().Start(rootPath, totalDirectory, diskFreeRatio, bgDiskFreeRatio);
-    if (ret != 0) {
-        FALCON_LOG(LOG_ERROR) << "DiskCache start failed";
-        return 1;
+    if (!isOnlyClient) {
+        SetRootPath(rootPath);
+        SetTotalDirectory(totalDirectory);
+        float diskFreeRatio = 0;
+        float bgDiskFreeRatio = 0;
+        if (storageThreshold < 1) {
+            diskFreeRatio = 1.0 - storageThreshold;
+            bgDiskFreeRatio = 1.1 - storageThreshold;
+        }
+        ret = DiskCache::GetInstance().Start(rootPath, totalDirectory, diskFreeRatio, bgDiskFreeRatio);
+        if (ret != 0) {
+            FALCON_LOG(LOG_ERROR) << "DiskCache start failed";
+            return 1;
+        }
     }
     MemPool().GetInstance().init(FALCON_BLOCK_SIZE, preBlockNum);
     storeThreadPool = ThreadPool::CreateThreadPool(threadNum, 100000, "store thread pool");
@@ -88,7 +90,7 @@ int FalconStore::InitStore()
         return 1;
     }
 #ifdef ZK_INIT
-    ret = StoreNode::GetInstance()->SetNodeConfig(rootPath);
+    ret = StoreNode::GetInstance()->SetNodeConfig(rootPath, isOnlyClient);
     if (ret != 0) {
         FALCON_LOG(LOG_ERROR) << "Falcon StoreNode init failed";
         return ret;

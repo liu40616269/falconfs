@@ -9,7 +9,10 @@
         "falcon_read_big_file_size": 2097152,
         "falcon_preblock_num": 1000,
         "falcon_node_id": 0,
-        "falcon_cluster_view": ["127.0.0.1:56039", "0.0.0.0:56039"],
+        "falcon_cluster_view": [
+            "127.0.0.1:56039",
+            "0.0.0.0:56039"
+        ],
         "falcon_thread_num": 50,
         "falcon_server_ip": "127.0.0.1",
         "falcon_server_port": "55510",
@@ -23,6 +26,7 @@
         "falcon_log_reserved_time": 1,
         "falcon_stat_max": true,
         "falcon_use_prometheus": true,
-        "falcon_prometheus_port": "50040"
+        "falcon_prometheus_port": "50040",
+        "falcon_only_client": true
     }
 }

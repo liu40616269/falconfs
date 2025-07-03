@@ -15,12 +15,12 @@ class StoreNode {
   private:
     std::shared_mutex nodeMutex;
     int initStatus = 0;
-    int nodeId;
+    int nodeId = -1;
     std::unordered_map<int, std::pair<std::string, std::shared_ptr<FalconIOClient>>> nodeMap;
 
   public:
     int SetNodeConfig(int initNodeId, std::string &clusterView);
-    int SetNodeConfig(std::string &rootPath);
+    int SetNodeConfig(std::string &rootPath, bool isOnlyClient);
     static StoreNode *GetInstance();
     static void DeleteInstance();
     FalconIOClient *CreateIOConnection(const std::string &rpcEndPoint);

@@ -92,19 +92,27 @@ int StoreNode::UpdateNodeConfig()
     return ret;
 }
 
-int StoreNode::SetNodeConfig(std::string &rootPath)
+int StoreNode::SetNodeConfig(std::string &rootPath, bool isOnlyClient)
 {
-    auto ipPort = GetPodIPPort();
-    if (!ipPort) {
-        FALCON_LOG(LOG_ERROR) << "GetPodIPPort failed: " << ipPort.error();
-        return -1; // 或定义明确的错误码
+    int ret = 0;
+    if (!isOnlyClient) {
+        auto ipPort = GetPodIPPort();
+        if (!ipPort) {
+            FALCON_LOG(LOG_ERROR) << "GetPodIPPort failed: " << ipPort.error();
+            return -1; // 或定义明确的错误码
+        }
+        std::string podIP = ipPort.value_or("127.0.0.1:56039");
+        ret = FalconCM::GetInstance()->Upload("", podIP, nodeId, rootPath);
+        if (ret != 0) {
+            return ret;
+        }
+        FALCON_LOG(LOG_INFO) << "In SetNodeConfig(): local nodeId = " << nodeId;
+    } else {
+        ret = FalconCM::GetInstance()->CheckClusterStatus();
+        if (ret != 0) {
+            return ret;
+        }
     }
-    std::string podIP = ipPort.value_or("127.0.0.1:56039");
-    int ret = FalconCM::GetInstance()->Upload("", podIP, nodeId, rootPath);
-    if (ret != 0) {
-        return ret;
-    }
-    FALCON_LOG(LOG_INFO) << "In SetNodeConfig(): local nodeId = " << nodeId;
     std::mutex mu;
     std::unique_lock<std::mutex> lock(mu);
     FalconCM::GetInstance()->GetStoreNodeCompleteCv().wait(lock,

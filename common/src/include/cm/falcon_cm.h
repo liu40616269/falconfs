@@ -44,6 +44,7 @@ class FalconCM {
     int unsetNodeStatus();
     void UpdateMetaDataStatus();
     void CheckMetaDataStatus();
+    int CheckClusterStatus();
     std::condition_variable &GetStoreNodeCompleteCv();
     std::condition_variable &GetMetaDataReadyCv();
 

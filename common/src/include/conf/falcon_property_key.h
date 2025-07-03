@@ -70,12 +70,14 @@ class FalconPropertyKey : public PropertyKey {
     inline static const auto FALCON_LOG_RESERVED_TIME =
         PropertyKey::Builder("main", "falcon_log_reserved_time", FALCON, FALCON_UINT).build();
 
-    inline static const auto FALCON_STAT_MAX = 
+    inline static const auto FALCON_STAT_MAX =
         PropertyKey::Builder("main", "falcon_stat_max", FALCON, FALCON_BOOL).build();
 
-    inline static const auto FALCON_USE_PROMETHEUS = 
+    inline static const auto FALCON_USE_PROMETHEUS =
         PropertyKey::Builder("main", "falcon_use_prometheus", FALCON, FALCON_BOOL).build();
 
     inline static const auto FALCON_PROMETHEUS_PORT =
         PropertyKey::Builder("main", "falcon_prometheus_port", FALCON, FALCON_STRING).build();
+    inline static const auto FALCON_ONLY_CLIENT =
+        PropertyKey::Builder("main", "falcon_only_client", FALCON, FALCON_BOOL).build();
 };

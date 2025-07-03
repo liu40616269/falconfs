@@ -322,6 +322,22 @@ int FalconCM::Upload(const std::string & /*path*/, std::string &nodeInfoParam, i
     return RETURN_OK;
 }
 
+int FalconCM::CheckClusterStatus()
+{
+    std::string statusPath = clusterName + "/StoreNode/storeNodeStatus";
+    char buf[BUFF_SIZE] = {0};
+    int length = BUFF_SIZE;
+    int ret = zoo_wget(zhandle, statusPath.c_str(), clusterStatusCallback, this, buf, &length, nullptr);
+    if (ret != ZOK) {
+        FALCON_LOG(LOG_ERROR) << "wget failed in zk " << ret;
+        return RETURN_ERROR;
+    }
+    if (strcmp(buf, "1") == 0) {
+        UpdateNodeStatus();
+    }
+    return RETURN_OK;
+}
+
 int FalconCM::FetchStoreNodes(std::unordered_map<int, std::string> &storeNodes)
 {
     int ret = 0;
@@ -355,6 +371,9 @@ int FalconCM::FetchStoreNodes(std::unordered_map<int, std::string> &storeNodes)
 
 int FalconCM::ReUpload()
 {
+    if (nodeId == -1) {
+        return RETURN_OK;
+    }
     int ret = 0;
     std::string nodePath = clusterName + "/StoreNode/Nodes/Node00" + std::to_string(nodeId);
     std::cout << nodePath << std::endl;
