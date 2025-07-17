@@ -134,8 +134,9 @@ install_falcon_python_sdk() {
 install_deploy_scripts() {
     echo "Installing deploy scripts to $FALCONFS_INSTALL_DIR..."
     rm -rf "$FALCONFS_INSTALL_DIR/deploy"
-    cp -r "$FALCONFS_DIR/deploy" "$FALCONFS_INSTALL_DIR"
-    cp -r "$FALCONFS_DIR/config" "$FALCONFS_INSTALL_DIR"
+    rm -rf "$FALCONFS_INSTALL_DIR/config"
+    rsync -av --exclude='tmp' "$FALCONFS_DIR/deploy" "$FALCONFS_INSTALL_DIR"
+    rsync -av --exclude='tmp' "$FALCONFS_DIR/config" "$FALCONFS_INSTALL_DIR"
     echo "deploy scripts installed to $FALCONFS_INSTALL_DIR"
 }
 
@@ -361,9 +362,9 @@ test)
     echo "All unit tests passed."
     ;;
 install)
-    #install_pg
-    #install_falcon_client
-    #install_falcon_python_sdk
+    install_pg
+    install_falcon_client
+    install_falcon_python_sdk
     install_deploy_scripts
     ;;
 *)

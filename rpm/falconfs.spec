@@ -10,7 +10,7 @@ Source0:        falconfs.tar.gz
 AutoReq:        0
 AutoProv:       0
 BuildRequires:  tar
-Requires:       bash gcc gcc-c++ glibc-static glibc-devel libmpc-devel tmux flex bison openssl-devel gflags-devel leveldb leveldb-devel glog glog-devel libibverbs libibverbs-utils libibverbs-devel autoconf automake libtool libtool-ltdl-devel cppunit-devel maven java-1.8.0-openjdk-devel ninja-build readline-devel fuse fuse-devel fmt-devel
+Requires:       bash gcc gcc-c++ glibc-static glibc-devel libmpc-devel tmux flex bison openssl-devel gflags-devel leveldb leveldb-devel glog glog-devel libibverbs libibverbs-utils libibverbs-devel autoconf automake libtool libtool-ltdl-devel cppunit-devel maven java-1.8.0-openjdk-devel ninja-build readline-devel fuse fuse-devel fmt-devel ansible libffi-devel
 
 %description
 FalconFS is a high-performance distributed file system (DFS) optimized for AI workloads.

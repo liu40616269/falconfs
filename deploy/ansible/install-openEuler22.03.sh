@@ -249,10 +249,11 @@ install_python() {
     pushd .
 
     PYTHON_VERSION=3.11.13
+    yum install -y libffi-devel
     wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tar.xz
     tar -xvf Python-$PYTHON_VERSION.tar.xz
     cd Python-$PYTHON_VERSION
-    ./configure --prefix=$PREFIX/third_party/python-$PYTHON_VERSION --enable-shared --enable-optimizations
+    ./configure --prefix=$PREFIX/third_party/python-$PYTHON_VERSION --enable-shared --with-pydebug --enable-optimizations
     make -j$(nproc)
     make install
 
@@ -302,7 +303,7 @@ if [ "$INSTALL_PYTHON" = true ]; then
 fi
 
 # other packages for falconfs
-yum install -y ninja-build readline-devel fuse fuse-devel fmt-devel
+yum install -y ninja-build readline-devel fuse fuse-devel fmt-devel rsync ansible
 ldconfig
 
 cat <<EOF
@@ -313,7 +314,7 @@ export FALCONFS_INSTALL_DIR=$PREFIX
 
 If you plan to copy the compiled binaries to another machine, please make sure to install the following system dependencies on the target machine:
 
-yum install -y gcc gcc-c++ glibc-static glibc-devel libmpc-devel tmux flex bison openssl-devel gflags-devel leveldb leveldb-devel glog glog-devel libibverbs libibverbs-utils libibverbs-devel autoconf automake libtool libtool-ltdl-devel cppunit-devel maven java-1.8.0-openjdk-devel ninja-build readline-devel fuse fuse-devel fmt-devel
+yum install -y gcc gcc-c++ glibc-static glibc-devel libmpc-devel tmux flex bison openssl-devel gflags-devel leveldb leveldb-devel glog glog-devel libibverbs libibverbs-utils libibverbs-devel autoconf automake libtool libtool-ltdl-devel cppunit-devel maven java-1.8.0-openjdk-devel ninja-build readline-devel fuse fuse-devel fmt-devel ansible libffi-devel
 
 -------------------------------------------------------------
 EOF

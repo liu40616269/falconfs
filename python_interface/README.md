@@ -20,11 +20,14 @@ assert(ret == 0)
 
 buffer = bytearray(b"hello")
 ret = client.Write("/test", fd, buffer, 5, 0)
-assert(ret == 5)
+assert(ret == 0)
 
 anotherBuffer = bytearray(16)
 ret = client.Read("/test", fd, anotherBuffer, 5, 0)
 assert(ret == 5)
+
+ret = client.Flush("/test", fd)
+assert(ret == 0)
 
 ret = client.Close("/test", fd)
 assert(ret == 0)
