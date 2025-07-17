@@ -42,4 +42,15 @@ wget -O- "${OBS_DOWNLOAD_URL}" | tar -xzvf - -C /tmp &&
     sudo rm /usr/local/obs/lib/libcrypto.so* &&
     sudo rm -rf "/tmp/huaweicloud-sdk-c-obs-${OBS_VERSION#v}"
 
+sudo apt install -y libcurl4-openssl-dev
+export PROMETHEUS_CPP_VERSION=1.3.0
+export PROMETHEUS_DOWNLOAD_URL=https://github.com/jupp0r/prometheus-cpp/releases/download/v${PROMETHEUS_CPP_VERSION}/prometheus-cpp-with-submodules.tar.gz
+
+wget -O- "${PROMETHEUS_DOWNLOAD_URL}" | tar -xzvf - -C /tmp &&
+    cd "/tmp/prometheus-cpp-with-submodules" &&
+    mkdir build && cd build &&
+    cmake .. -DBUILD_SHARED_LIBS=ON -DENABLE_PULL=ON -DENABLE_COMPRESSION=OFF &&
+    make -j$(nproc) && make install &&
+    rm -rf "/tmp/prometheus-cpp-with-submodule"
+
 sudo apt-get install -y fio

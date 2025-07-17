@@ -19,6 +19,18 @@ RUN apt-get install -y gcc-14 g++-14 && \
 RUN apt-get install -y tar wget make cmake ninja-build libreadline-dev liblz4-dev libzstd-dev libpython3-dev  bison flex m4 autoconf automake pkg-config libssl-dev fuse libfuse-dev libtool libflatbuffers-dev flatbuffers-compiler libprotoc-dev libprotobuf-dev protobuf-compiler libgflags-dev libjsoncpp-dev libleveldb-dev libfmt-dev libgtest-dev libgmock-dev libgoogle-glog-dev libzookeeper-mt-dev libibverbs-dev iputils-ping net-tools jq moreutils
 RUN mv /usr/include/jsoncpp/json /usr/include/json && rm -rf /usr/include/jsoncpp
 
+# install prometheus
+RUN apt install -y libcurl4-openssl-dev
+ARG PROMETHEUS_CPP_VERSION=1.3.0
+ARG PROMETHEUS_DOWNLOAD_URL=https://github.com/jupp0r/prometheus-cpp/releases/download/v${PROMETHEUS_CPP_VERSION}/prometheus-cpp-with-submodules.tar.gz
+
+RUN wget -O- "${PROMETHEUS_DOWNLOAD_URL}" | tar -xzvf - -C /tmp && \
+    cd "/tmp/prometheus-cpp-with-submodules" && \
+    mkdir build && cd build && \
+    cmake .. -DBUILD_SHARED_LIBS=ON -DENABLE_PULL=ON -DENABLE_COMPRESSION=OFF && \
+    make -j$(nproc) && make install && \
+    rm -rf "/tmp/prometheus-cpp-with-submodule"
+
 # install brpc
 ARG BRPC_VERSION=1.12.1
 ARG BRPC_DOWNLOAD_URL=https://github.com/apache/brpc/archive/refs/tags/${BRPC_VERSION}.tar.gz

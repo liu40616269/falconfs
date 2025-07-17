@@ -2,7 +2,7 @@ FROM ghcr.io/falcon-infra/dev:0.1.0
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 ENV LD_LIBRARY_PATH=/usr/local/lib64:/usr/local/lib
-RUN apt update && apt install -y libreadline-dev bison flex libgflags-dev libgoogle-glog-dev libleveldb-dev libssl-dev libthrift-dev libpq-dev fuse libfuse-dev libzookeeper-mt-dev libfmt-dev fio
+RUN apt update && apt install -y libreadline-dev bison flex libgflags-dev libgoogle-glog-dev libleveldb-dev libssl-dev libthrift-dev libpq-dev fuse libfuse-dev libzookeeper-mt-dev libfmt-dev fio git libcurl4-openssl-dev
 
 # brpc
 RUN apt install -y libgflags-dev libssl-dev libsnappy-dev libgoogle-glog-dev libgoogle-perftools-dev libunwind-dev libgtest-dev libgmock-dev autoconf libtool libibverbs-dev
@@ -27,6 +27,17 @@ RUN wget -O- "${BRPC_DOWNLOAD_URL}" | tar -xzvf - -C /tmp && \
     cmake -GNinja -DWITH_GLOG=ON -DWITH_RDMA=ON .. && \
     ninja && ninja install && \
     rm -rf "/tmp/brpc-${BRPC_VERSION}"
+
+RUN apt install -y libcurl4-openssl-dev
+ARG PROMETHEUS_CPP_VERSION=1.3.0
+ARG PROMETHEUS_DOWNLOAD_URL=https://github.com/jupp0r/prometheus-cpp/releases/download/v${PROMETHEUS_CPP_VERSION}/prometheus-cpp-with-submodules.tar.gz
+
+RUN wget -O- "${PROMETHEUS_DOWNLOAD_URL}" | tar -xzvf - -C /tmp && \
+    cd "/tmp/prometheus-cpp-with-submodules" && \
+    mkdir build && cd build && \
+    cmake .. -DBUILD_SHARED_LIBS=ON -DENABLE_PULL=ON -DENABLE_COMPRESSION=OFF && \
+    make -j$(nproc) && make install && \
+    rm -rf "/tmp/prometheus-cpp-with-submodule"
 
 ARG FLATBUFFERS_VERSION=25.2.10
 ARG FLATBUFFERS_DOWNLOAD_URL=https://github.com/google/flatbuffers/archive/refs/tags/v${FLATBUFFERS_VERSION}.tar.gz

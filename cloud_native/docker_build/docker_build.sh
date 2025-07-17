@@ -11,12 +11,13 @@ gen_config() {
     jq '.main.falcon_cache_root = "/opt/falcon"' $JSON_DIR | sponge $JSON_DIR
     jq '.main.falcon_mount_path = "/mnt/falcon"' $JSON_DIR | sponge $JSON_DIR
     jq '.main.falcon_log_reserved_num = 50' $JSON_DIR | sponge $JSON_DIR
-    jq '.main.falcon_log_reserved_time = 168' $JSON_DIR | sponge $JSON_DIR
+    jq '.main.falcon_stat_max = true' $JSON_DIR | sponge $JSON_DIR
+    jq '.main.falcon_use_prometheus = true' $JSON_DIR | sponge $JSON_DIR
 }
 
 pushd $FALCONFS_DIR
 ./build.sh build pg && ./build.sh install
-./build.sh build falcon --with-zk-init
+./build.sh build falcon --with-zk-init --with-prometheus
 popd
 pushd $DIR
 mkdir -p $DIR/store/falconfs/bin/
