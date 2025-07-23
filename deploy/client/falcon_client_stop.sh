@@ -16,7 +16,7 @@ fi
 
 # 1. Unmount first (will stop the mounted instance)
 if mount | grep -q "$MNT_PATH"; then
-    $SUDO fusermount -u "$MNT_PATH"
+    $SUDO umount -l "$MNT_PATH"
     echo "Unmounted $MNT_PATH and stopped associated falcon_client"
 else
     echo "$MNT_PATH is not mounted"

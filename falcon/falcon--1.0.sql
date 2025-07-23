@@ -135,6 +135,20 @@ CREATE FUNCTION pg_catalog.falcon_create_distributed_data_table()
 COMMENT ON FUNCTION pg_catalog.falcon_create_distributed_data_table()
     IS 'falcon create distributed data table';
 
+CREATE FUNCTION pg_catalog.falcon_create_distributed_data_table_by_range_point(range_point int)
+    RETURNS INTEGER
+    LANGUAGE C STRICT
+    AS 'MODULE_PATHNAME', $$falcon_create_distributed_data_table_by_range_point$$;
+COMMENT ON FUNCTION pg_catalog.falcon_create_distributed_data_table_by_range_point(int)
+    IS 'falcon create distributed data table by range point';
+
+CREATE FUNCTION pg_catalog.falcon_drop_distributed_data_table_by_range_point(range_point int)
+    RETURNS INTEGER
+    LANGUAGE C STRICT
+    AS 'MODULE_PATHNAME', $$falcon_drop_distributed_data_table_by_range_point$$;
+COMMENT ON FUNCTION pg_catalog.falcon_drop_distributed_data_table_by_range_point(int)
+    IS 'falcon drop distributed data table by range point';
+
 CREATE FUNCTION pg_catalog.falcon_prepare_commands()
     RETURNS INTEGER
     LANGUAGE C STRICT
@@ -225,6 +239,13 @@ CREATE FUNCTION pg_catalog.falcon_run_pooler_server_func()
     AS 'MODULE_PATHNAME', $$falcon_run_pooler_server_func$$;
 COMMENT ON FUNCTION pg_catalog.falcon_run_pooler_server_func()
     IS 'falcon run pooler server';
+
+CREATE FUNCTION pg_catalog.falcon_move_shard(range_point int, target_server_id int)
+    RETURNS INTEGER
+    LANGUAGE C STRICT
+    AS 'MODULE_PATHNAME', $$falcon_move_shard$$;
+COMMENT ON FUNCTION pg_catalog.falcon_move_shard(int, int)
+    IS 'falcon move shard';
 
 
 CREATE SEQUENCE falcon.pg_dfs_inodeid_seq

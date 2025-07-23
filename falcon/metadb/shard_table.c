@@ -136,7 +136,6 @@ Datum falcon_update_shard_table(PG_FUNCTION_ARGS)
     CatalogCloseIndexes(indstate);
     table_close(rel, RowExclusiveLock);
     InvalidateShardTableShmemCache();
-    ReloadShardTableShmemCache();
 
     PG_RETURN_INT16(0);
 }

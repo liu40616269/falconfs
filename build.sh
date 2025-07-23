@@ -8,6 +8,7 @@ WITH_FUSE_OPT=false
 WITH_ZK_INIT=false
 WITH_RDMA=false
 WITH_PROMETHEUS=false
+CREATE_SOFT_LINK=true
 
 FALCONFS_INSTALL_DIR="${FALCONFS_INSTALL_DIR:-/usr/local/falconfs}"
 export FALCONFS_INSTALL_DIR=$FALCONFS_INSTALL_DIR
@@ -43,6 +44,7 @@ build_pg() {
     local BLD_OPT=${1:-"deploy"}
     [[ "$BUILD_TYPE" == "Debug" ]] && BLD_OPT="debug"
     local CONFIGURE_OPTS=()
+    local PG_CFLAGS=""
 
     echo "Building PostgreSQL (mode: $BLD_OPT) ..."
     rm -rf "$POSTGRES_SRC_DIR/contrib/falcon"
@@ -51,6 +53,7 @@ build_pg() {
     # 设置构建选项
     if [[ "$BLD_OPT" == "debug" ]]; then
         CONFIGURE_OPTS+=(--enable-debug)
+        PG_CFLAGS="-ggdb -O0 -g3 -Wall -fno-omit-frame-pointer"
     fi
 
     # 进入源码目录
@@ -62,7 +65,7 @@ build_pg() {
     fi
 
     # 生成配置并构建
-    ./configure --prefix=${PG_INSTALL_DIR} "${CONFIGURE_OPTS[@]}" \
+    CFLAGS="$PG_CFLAGS" ./configure --prefix=${PG_INSTALL_DIR} "${CONFIGURE_OPTS[@]}" \
         --enable-rpath LDFLAGS="-Wl,-rpath,$FALCONFS_INSTALL_DIR/lib64:$FALCONFS_INSTALL_DIR/lib" &&
         make -j$(nproc) &&
         cd "$POSTGRES_SRC_DIR/contrib" && make -j
@@ -115,14 +118,18 @@ install_pg() {
     cd "$POSTGRES_SRC_DIR" &&
         make install
     cd "$POSTGRES_SRC_DIR/contrib" && make install
-    bash $FALCONFS_DIR/deploy/ansible/link_third_party_to.sh $PG_INSTALL_DIR $FALCONFS_INSTALL_DIR
+    if [[ "$CREATE_SOFT_LINK" == "true" ]]; then
+        bash $FALCONFS_DIR/deploy/ansible/link_third_party_to.sh $PG_INSTALL_DIR $FALCONFS_INSTALL_DIR
+    fi
     echo "PostgreSQL installed to $PG_INSTALL_DIR"
 }
 
 install_falcon_client() {
     echo "Installing FalconFS client to $FALCON_CLIENT_INSTALL_DIR..."
     cd "$BUILD_DIR" && ninja install
-    bash $FALCONFS_DIR/deploy/ansible/link_third_party_to.sh $FALCON_CLIENT_INSTALL_DIR $FALCONFS_INSTALL_DIR
+    if [[ "$CREATE_SOFT_LINK" == "true" ]]; then
+        bash $FALCONFS_DIR/deploy/ansible/link_third_party_to.sh $FALCON_CLIENT_INSTALL_DIR $FALCONFS_INSTALL_DIR
+    fi
     echo "FalconFS client installed to $FALCON_CLIENT_INSTALL_DIR"
 }
 

@@ -41,5 +41,5 @@ if ! pgrep -f "falcon_client" >/dev/null; then
     exit 1
 fi
 
-echo "falcon_client started successfully (PID: $(pgrep -f "^\./bin/falcon_client"))"
+echo "falcon_client started successfully (PID: $(pgrep -f "^\falcon_client"))"
 exit 0
