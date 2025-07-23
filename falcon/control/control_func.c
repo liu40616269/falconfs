@@ -171,7 +171,7 @@ Datum falcon_move_shard(PG_FUNCTION_ARGS)
             PQerrorMessage(sourceServerConn->conn));
     if (!PQpipelineSync(targetServerConn->conn))
         FALCON_ELOG_ERROR_EXTENDED(REMOTE_QUERY_FAILED, "Target PQpipelineSync failed. ErrorMsg: %s",
-            PQerrorMessage(sourceServerConn->conn));
+            PQerrorMessage(targetServerConn->conn));
     
     PGresult *sourceRes = PQgetResult(sourceServerConn->conn);
     if (PQresultStatus(sourceRes) != PGRES_COPY_OUT)
