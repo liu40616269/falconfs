@@ -397,8 +397,6 @@ void FalconRemoteCommandPrepare()
         switch (PQresultStatus(res)) {
         case PGRES_COMMAND_OK:
         case PGRES_TUPLES_OK:
-        case PGRES_COPY_OUT:
-        case PGRES_COPY_IN:
             res = FetchPGresultAndMark(foreignServerConn->conn);
             if (res != NULL)
                 FALCON_ELOG_ERROR(PROGRAM_ERROR, "a NULL is expected.");
