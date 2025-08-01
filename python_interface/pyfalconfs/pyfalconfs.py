@@ -77,13 +77,13 @@ class AsyncConnector:
         _pyfalconfs_internal.Init(workspace, running_config_file)
 
     @copy_doc_from(_pyfalconfs_internal.AsyncExists)
-    async def AsyncExists(self, path):
-        return await _pyfalconfs_internal.AsyncExists(path)
+    def AsyncExists(self, path):
+        return _pyfalconfs_internal.AsyncExists(path)
     
     @copy_doc_from(_pyfalconfs_internal.AsyncGet)
-    async def AsyncGet(self, path, buffer, size, offset):
-        return await _pyfalconfs_internal.AsyncGet(path, buffer, size, offset)
+    def AsyncGet(self, path, buffer, size, offset):
+        return _pyfalconfs_internal.AsyncGet(path, buffer, size, offset)
     
     @copy_doc_from(_pyfalconfs_internal.AsyncPut)
-    async def AsyncPut(self, path, buffer, size, offset):
-        return await _pyfalconfs_internal.AsyncPut(path, buffer, size, offset)
+    def AsyncPut(self, path, buffer, size, offset):
+        return _pyfalconfs_internal.AsyncPut(path, buffer, size, offset)

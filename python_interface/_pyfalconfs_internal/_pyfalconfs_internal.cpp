@@ -548,6 +548,98 @@ static PyObject* PyWrapper_ReadDir(PyObject* self, PyObject* args)
 }
 
 /* =================== Non-Blocking Methods =======================*/
+class ModuleVariables
+{
+private:
+    bool InitInternal()
+    {
+        asyncio_module = PyImport_ImportModule("asyncio");
+        if (!asyncio_module)
+            return false;
+        get_event_loop_func = PyObject_GetAttrString(asyncio_module, "get_event_loop");
+        if (!get_event_loop_func) 
+            return false;
+        loop_obj = PyObject_CallFunctionObjArgs(get_event_loop_func, NULL);
+        if (!loop_obj) 
+            return false;
+        create_future_func = PyObject_GetAttrString(loop_obj, "create_future");
+        if (!create_future_func)
+            return false;
+        return true;
+    }
+public:
+    PyObject* asyncio_module = nullptr;
+    PyObject* get_event_loop_func = nullptr;
+    PyObject* loop_obj = nullptr;
+    PyObject* create_future_func = nullptr;
+
+    bool Init()
+    {
+        bool succeed = InitInternal();
+        if (!succeed)
+            Destroy();
+        return succeed;
+    }
+
+    void Destroy()
+    {
+        if (asyncio_module) 
+        {
+            Py_DECREF(asyncio_module);
+            asyncio_module = nullptr;
+        }
+        if (get_event_loop_func) 
+        {
+            Py_DECREF(get_event_loop_func);
+            get_event_loop_func = nullptr;
+        }
+        if (loop_obj) 
+        {
+            Py_DECREF(loop_obj);
+            loop_obj = nullptr;
+        }
+        if (create_future_func)
+        {
+            Py_DECREF(create_future_func);
+            create_future_func = nullptr;
+        }
+    }
+};
+static ModuleVariables g_ModuleVariables;
+
+class AsyncResultBase
+{
+public:
+    char* exceptionInfo;
+    AsyncResultBase() : exceptionInfo(nullptr) { }
+    AsyncResultBase(char* exceptionInfo) : exceptionInfo(exceptionInfo) { }
+
+    virtual PyObject* GeneratePyObject()
+    {
+        PyErr_SetString(PyExc_RuntimeError, exceptionInfo);
+        return NULL;
+    }
+    ~AsyncResultBase()
+    {
+        if (exceptionInfo)
+            free(exceptionInfo);
+    }
+};
+
+class AsyncResultIntOnly : public AsyncResultBase
+{
+public:
+    int data = 0;
+
+    AsyncResultIntOnly(int data) : data(data) { }
+    PyObject* GeneratePyObject()
+    {
+        if (exceptionInfo)
+            return AsyncResultBase::GeneratePyObject();
+        return PyLong_FromLong(data);
+    }
+};
+
 class AsyncTaskThreadPool 
 {
 private:
@@ -599,7 +691,7 @@ private:
             {
                 std::unique_lock<std::mutex> lock(mutex);
                 assert(!task);
-                task = std::move(newTask);
+                this->task = std::move(newTask);
             }
             cv.notify_one();
         }
@@ -664,14 +756,11 @@ public:
         }
     }
 
-    template<class F, class... Args>
-    auto Dispatch(F&& f, Args&&... args) -> std::future<decltype(f(args...))>
+    PyObject* Dispatch(std::function<std::unique_ptr<AsyncResultBase>()> task)
     {
-        using return_type = decltype(f(args...));
-        auto task = std::make_shared<std::packaged_task<return_type()>>(
-            std::bind(std::forward<F>(f), std::forward<Args>(args)...)
-        );
-        std::future<return_type> res = task->get_future();
+        PyObject* future = PyObject_CallObject(g_ModuleVariables.create_future_func, NULL);
+        if (!future) 
+            return nullptr;
 
         Worker* worker = nullptr;
         {
@@ -689,109 +778,27 @@ public:
             worker = allWorkers.back().get();
         }
 
-        worker->AssignTask([task]() { (*task)(); });
+        worker->AssignTask([task, future]() -> void { 
+            std::unique_ptr<AsyncResultBase> result = task();
 
-        return res;
+            PyGILState_STATE gstate = PyGILState_Ensure();
+            
+            PyObject* py_result = result->GeneratePyObject();
+            PyObject* set_result = PyObject_GetAttrString(future, "set_result");
+            PyObject* call_result = PyObject_CallObject(set_result, PyTuple_Pack(1, py_result));
+            Py_DECREF(py_result);
+            Py_DECREF(set_result);
+            Py_DECREF(call_result);
+
+            PyGILState_Release(gstate);
+        });
+
+        return future;
     }
 };
 
 static std::mutex AsyncTaskThreadPoolForPyMutex;
 static std::shared_ptr<AsyncTaskThreadPool> AsyncTaskThreadPoolForPy = nullptr;
-
-class AsyncResultBase
-{
-public:
-    char* exceptionInfo;
-    AsyncResultBase() : exceptionInfo(nullptr) { }
-    AsyncResultBase(char* exceptionInfo) : exceptionInfo(exceptionInfo) { }
-
-    virtual PyObject* GeneratePyObject()
-    {
-        PyErr_SetString(PyExc_RuntimeError, exceptionInfo);
-        return NULL;
-    }
-    ~AsyncResultBase()
-    {
-        if (exceptionInfo)
-            free(exceptionInfo);
-    }
-};
-struct AsyncState 
-{
-    PyObject_HEAD
-    std::future<std::unique_ptr<AsyncResultBase>> future;
-};
-
-class AsyncResultIntOnly : public AsyncResultBase
-{
-public:
-    int data = 0;
-
-    AsyncResultIntOnly(int data) : data(data) { }
-    PyObject* GeneratePyObject()
-    {
-        if (exceptionInfo)
-            return AsyncResultBase::GeneratePyObject();
-        return PyLong_FromLong(data);
-    }
-};
-
-static PyObject* AsyncState_new(PyTypeObject* type, PyObject* args, PyObject* kwargs) 
-{
-    AsyncState* self = (AsyncState*)type->tp_alloc(type, 0);
-    return (PyObject*)self;
-}
-
-static void AsyncState_dealloc(AsyncState* self) 
-{
-    Py_TYPE(self)->tp_free((PyObject*)self);
-}
-
-static PyObject* AsyncState_iter(PyObject* self) 
-{
-    Py_INCREF(self);
-    return self;
-}
-
-static PyObject* AsyncState_iternext(PyObject* self) 
-{
-    AsyncState* state = (AsyncState*)self;
-    if (state->future.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
-        Py_RETURN_NONE;
-
-    std::unique_ptr<AsyncResultBase> result = state->future.get();
-    PyObject* pyResult = result->GeneratePyObject();
-    PyErr_SetObject(PyExc_StopIteration, pyResult);
-    Py_DECREF(pyResult);
-    return NULL;
-}
-
-static PyObject* AsyncState_await(PyObject *self)
-{
-    Py_INCREF(self);
-    return self;
-}
-
-static PyAsyncMethods AsyncState_as_async = 
-{
-    .am_await = AsyncState_await,
-    .am_aiter = AsyncState_iter,
-    .am_anext = AsyncState_iternext
-};
-
-static PyTypeObject AsyncStateType = 
-{
-    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "pyfalconfs.AsyncState",
-    .tp_basicsize = sizeof(AsyncState),
-    .tp_dealloc = (destructor)AsyncState_dealloc,
-    .tp_as_async = &AsyncState_as_async,
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Asynchronous task state",
-    .tp_iter = AsyncState_iter,
-    .tp_iternext = AsyncState_iternext,
-    .tp_new = AsyncState_new,
-};
 
 static PyObject* PyWrapper_AsyncExists(PyObject* self, PyObject* args) 
 {
@@ -799,7 +806,6 @@ static PyObject* PyWrapper_AsyncExists(PyObject* self, PyObject* args)
     if (!PyArg_ParseTuple(args, "s", &path)) 
         return nullptr;
 
-    AsyncState* state = (AsyncState*)AsyncStateType.tp_new(&AsyncStateType, nullptr, nullptr);
     auto task = [path]() -> std::unique_ptr<AsyncResultBase>
     {
         int ret = -1;
@@ -816,8 +822,8 @@ static PyObject* PyWrapper_AsyncExists(PyObject* self, PyObject* args)
         }
         return std::make_unique<AsyncResultIntOnly>(ret);
     };
-    state->future = AsyncTaskThreadPoolForPy->Dispatch(task);
-    return (PyObject*)state;
+    PyObject* future = AsyncTaskThreadPoolForPy->Dispatch(task);
+    return future;
 }
 
 static PyObject* PyWrapper_AsyncGet(PyObject* self, PyObject* args) 
@@ -829,7 +835,6 @@ static PyObject* PyWrapper_AsyncGet(PyObject* self, PyObject* args)
     if (!PyArg_ParseTuple(args, "sw*ii", &path, &buffer, &size, &offset)) 
         return nullptr;
 
-    AsyncState* state = (AsyncState*)AsyncStateType.tp_new(&AsyncStateType, nullptr, nullptr);
     auto task = [path, buffer, size, offset]() -> std::unique_ptr<AsyncResultBase>
     {
         int ret = -1;
@@ -860,8 +865,8 @@ static PyObject* PyWrapper_AsyncGet(PyObject* self, PyObject* args)
         }
         return std::make_unique<AsyncResultIntOnly>(ret);
     };
-    state->future = AsyncTaskThreadPoolForPy->Dispatch(task);
-    return (PyObject*)state;
+    PyObject* future = AsyncTaskThreadPoolForPy->Dispatch(task);
+    return future;
 }
 
 static PyObject* PyWrapper_AsyncPut(PyObject* self, PyObject* args) 
@@ -873,7 +878,6 @@ static PyObject* PyWrapper_AsyncPut(PyObject* self, PyObject* args)
     if (!PyArg_ParseTuple(args, "sw*ii", &path, &buffer, &size, &offset)) 
         return nullptr;
 
-    AsyncState* state = (AsyncState*)AsyncStateType.tp_new(&AsyncStateType, nullptr, nullptr);
     auto task = [path, buffer, size, offset]() -> std::unique_ptr<AsyncResultBase>
     {
         int ret = -1;
@@ -910,8 +914,8 @@ static PyObject* PyWrapper_AsyncPut(PyObject* self, PyObject* args)
         }
         return std::make_unique<AsyncResultIntOnly>(ret);
     };
-    state->future = AsyncTaskThreadPoolForPy->Dispatch(task);
-    return (PyObject*)state;
+    PyObject* future = AsyncTaskThreadPoolForPy->Dispatch(task);
+    return future;
 }
 
 static PyMethodDef PyFalconFSInternalMethods[] = 
@@ -1120,6 +1124,12 @@ static PyMethodDef PyFalconFSInternalMethods[] =
     }
 };
 
+static int ModuleCleanup(PyObject* module) 
+{
+    g_ModuleVariables.Destroy();
+    return 0;
+}
+
 static struct PyModuleDef PyFalconFSInternalModule = {
     PyModuleDef_HEAD_INIT,
     "_pyfalconfs_internal",
@@ -1128,7 +1138,7 @@ static struct PyModuleDef PyFalconFSInternalModule = {
     PyFalconFSInternalMethods,
     NULL,
     NULL,
-    NULL,
+    ModuleCleanup,
     NULL
 };
 
@@ -1140,9 +1150,8 @@ extern "C" PyMODINIT_FUNC PyInit__pyfalconfs_internal(void)
             AsyncTaskThreadPoolForPy = std::make_shared<AsyncTaskThreadPool>(8);
     }
     PyObject* module = PyModule_Create(&PyFalconFSInternalModule);
-    if (PyType_Ready(&AsyncStateType) < 0) 
+    if (!g_ModuleVariables.Init())
         return nullptr;
-    Py_INCREF(&AsyncStateType);
-    PyModule_AddObject(module, "AsyncState", (PyObject*)&AsyncStateType);
+
     return module;
 }
