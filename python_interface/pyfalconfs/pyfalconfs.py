@@ -1,5 +1,6 @@
 import os
 import sys
+import asyncio
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import _pyfalconfs_internal
@@ -76,14 +77,14 @@ class AsyncConnector:
     def __init__(self, workspace, running_config_file):
         _pyfalconfs_internal.Init(workspace, running_config_file)
 
-    @copy_doc_from(_pyfalconfs_internal.AsyncExists)
-    def AsyncExists(self, path):
-        return _pyfalconfs_internal.AsyncExists(path)
+    @copy_doc_from(_pyfalconfs_internal.Exists)
+    async def AsyncExists(self, path):
+        return await asyncio.to_thread(_pyfalconfs_internal.Exists, path)
     
-    @copy_doc_from(_pyfalconfs_internal.AsyncGet)
-    def AsyncGet(self, path, buffer, size, offset):
-        return _pyfalconfs_internal.AsyncGet(path, buffer, size, offset)
+    @copy_doc_from(_pyfalconfs_internal.Get)
+    async def AsyncGet(self, path, buffer, size, offset):
+        return await asyncio.to_thread(_pyfalconfs_internal.Get, path, buffer, size, offset)
     
-    @copy_doc_from(_pyfalconfs_internal.AsyncPut)
-    def AsyncPut(self, path, buffer, size, offset):
-        return _pyfalconfs_internal.AsyncPut(path, buffer, size, offset)
+    @copy_doc_from(_pyfalconfs_internal.Put)
+    async def AsyncPut(self, path, buffer, size, offset):
+        return await asyncio.to_thread(_pyfalconfs_internal.Put, path, buffer, size, offset)

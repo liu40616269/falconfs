@@ -547,286 +547,51 @@ static PyObject* PyWrapper_ReadDir(PyObject* self, PyObject* args)
     return Py_BuildValue("(iN)", ret, list);
 }
 
-/* =================== Non-Blocking Methods =======================*/
-class ModuleVariables
+static int Exists(const char* path)
 {
-private:
-    bool InitInternal()
-    {
-        asyncio_module = PyImport_ImportModule("asyncio");
-        if (!asyncio_module)
-            return false;
-        get_event_loop_func = PyObject_GetAttrString(asyncio_module, "get_event_loop");
-        if (!get_event_loop_func) 
-            return false;
-        loop_obj = PyObject_CallFunctionObjArgs(get_event_loop_func, NULL);
-        if (!loop_obj) 
-            return false;
-        create_future_func = PyObject_GetAttrString(loop_obj, "create_future");
-        if (!create_future_func)
-            return false;
-        return true;
-    }
-public:
-    PyObject* asyncio_module = nullptr;
-    PyObject* get_event_loop_func = nullptr;
-    PyObject* loop_obj = nullptr;
-    PyObject* create_future_func = nullptr;
+    int ret = -1;
+    struct stat stbuf;
+    ret = Stat(path, &stbuf);
+    if (ret != 0)
+        return ret;
 
-    bool Init()
-    {
-        bool succeed = InitInternal();
-        if (!succeed)
-            Destroy();
-        return succeed;
-    }
-
-    void Destroy()
-    {
-        if (asyncio_module) 
-        {
-            Py_DECREF(asyncio_module);
-            asyncio_module = nullptr;
-        }
-        if (get_event_loop_func) 
-        {
-            Py_DECREF(get_event_loop_func);
-            get_event_loop_func = nullptr;
-        }
-        if (loop_obj) 
-        {
-            Py_DECREF(loop_obj);
-            loop_obj = nullptr;
-        }
-        if (create_future_func)
-        {
-            Py_DECREF(create_future_func);
-            create_future_func = nullptr;
-        }
-    }
-};
-static ModuleVariables g_ModuleVariables;
-
-class AsyncResultBase
-{
-public:
-    char* exceptionInfo;
-    AsyncResultBase() : exceptionInfo(nullptr) { }
-    AsyncResultBase(char* exceptionInfo) : exceptionInfo(exceptionInfo) { }
-
-    virtual PyObject* GeneratePyObject()
-    {
-        PyErr_SetString(PyExc_RuntimeError, exceptionInfo);
-        return NULL;
-    }
-    ~AsyncResultBase()
-    {
-        if (exceptionInfo)
-            free(exceptionInfo);
-    }
-};
-
-class AsyncResultIntOnly : public AsyncResultBase
-{
-public:
-    int data = 0;
-
-    AsyncResultIntOnly(int data) : data(data) { }
-    PyObject* GeneratePyObject()
-    {
-        if (exceptionInfo)
-            return AsyncResultBase::GeneratePyObject();
-        return PyLong_FromLong(data);
-    }
-};
-
-class AsyncTaskThreadPool 
-{
-private:
-    class Worker 
-    {
-    private:
-        std::thread thread;
-        std::mutex mutex;
-        std::condition_variable cv;
-        std::function<void()> task = nullptr;
-        bool stop = false;
-
-        void Run(std::function<void(Worker*)> onIdleCallback) 
-        {
-            while (true) 
-            {
-                std::function<void()> localTask;
-                {
-                    std::unique_lock<std::mutex> lock(mutex);
-                    cv.wait(lock, [&] { return stop || task; });
-
-                    if (stop) 
-                        return;
-                }
-
-                task();
-                task = nullptr;
-
-                onIdleCallback(this);
-            }
-        }
-    
-    public:
-        explicit Worker(std::function<void(Worker*)> idleCb) :
-            thread(&Worker::Run, this, idleCb)
-        {
-        }
-
-        ~Worker()
-        {
-            Stop();
-            
-            if (thread.joinable())
-                thread.join();
-        }
-
-        void AssignTask(std::function<void()> newTask) 
-        {
-            {
-                std::unique_lock<std::mutex> lock(mutex);
-                assert(!task);
-                this->task = std::move(newTask);
-            }
-            cv.notify_one();
-        }
-
-        void Stop() 
-        {
-            {
-                std::unique_lock<std::mutex> lock(mutex);
-                if (stop)
-                    return;
-
-                stop = true;
-            }
-            cv.notify_one();
-        }
-    };
-
-    std::vector<std::unique_ptr<Worker>> allWorkers;
-    std::mutex allWorkersMutex;
-    std::vector<Worker*> idleWorkers;
-    std::mutex idleWorkersMutex;
-
-    std::function<void(Worker*)> OnWorkerIdleCallback;
-
-public:
-    explicit AsyncTaskThreadPool(size_t initSize) :
-        OnWorkerIdleCallback([this](Worker* worker) {
-            std::lock_guard<std::mutex> guard(idleWorkersMutex);
-            idleWorkers.emplace_back(worker);
-        })
-    {
-        {
-            std::lock_guard<std::mutex> guard(allWorkersMutex);
-            for (size_t i = 0; i < initSize; ++i)
-            {
-                allWorkers.emplace_back(std::make_unique<Worker>(OnWorkerIdleCallback));
-            }
-        }
-
-        {
-            std::lock_guard<std::mutex> guard(idleWorkersMutex);
-            for (size_t i = 0; i < initSize; ++i)
-            {
-                idleWorkers.emplace_back(allWorkers[i].get());
-            }
-        }
-    }
-
-    ~AsyncTaskThreadPool() 
-    {
-        {
-            std::lock_guard<std::mutex> guard1(allWorkersMutex);
-            std::lock_guard<std::mutex> guard2(idleWorkersMutex);
-
-            for (auto& worker : allWorkers) 
-            {
-                worker->Stop();
-            }
-
-            allWorkers.clear();
-            idleWorkers.clear();
-        }
-    }
-
-    PyObject* Dispatch(std::function<std::unique_ptr<AsyncResultBase>()> task)
-    {
-        PyObject* future = PyObject_CallObject(g_ModuleVariables.create_future_func, NULL);
-        if (!future) 
-            return nullptr;
-
-        Worker* worker = nullptr;
-        {
-            std::lock_guard<std::mutex> lock(idleWorkersMutex);
-            if (!idleWorkers.empty())
-            {
-                worker = idleWorkers.back();
-                idleWorkers.pop_back();
-            }
-        }
-        if (!worker)
-        {
-            std::lock_guard<std::mutex> lock(allWorkersMutex);
-            allWorkers.emplace_back(std::make_unique<Worker>(OnWorkerIdleCallback));
-            worker = allWorkers.back().get();
-        }
-
-        worker->AssignTask([task, future]() -> void { 
-            std::unique_ptr<AsyncResultBase> result = task();
-
-            PyGILState_STATE gstate = PyGILState_Ensure();
-            
-            PyObject* py_result = result->GeneratePyObject();
-            PyObject* set_result = PyObject_GetAttrString(future, "set_result");
-            PyObject* call_result = PyObject_CallObject(set_result, PyTuple_Pack(1, py_result));
-            Py_DECREF(py_result);
-            Py_DECREF(set_result);
-            Py_DECREF(call_result);
-
-            PyGILState_Release(gstate);
-        });
-
-        return future;
-    }
-};
-
-static std::mutex AsyncTaskThreadPoolForPyMutex;
-static std::shared_ptr<AsyncTaskThreadPool> AsyncTaskThreadPoolForPy = nullptr;
-
-static PyObject* PyWrapper_AsyncExists(PyObject* self, PyObject* args) 
+    return ret;
+}
+static PyObject* PyWrapper_Exists(PyObject* self, PyObject* args) 
 {
     char* path = nullptr;
     if (!PyArg_ParseTuple(args, "s", &path)) 
         return nullptr;
 
-    auto task = [path]() -> std::unique_ptr<AsyncResultBase>
-    {
-        int ret = -1;
-        struct stat stbuf;
-        try
-        {
-            ret = Stat(path, &stbuf);
-            if (ret != 0)
-                return std::make_unique<AsyncResultIntOnly>(ret);
-        }
-        catch (const std::exception& e)
-        {
-            return std::make_unique<AsyncResultBase>(strdup(e.what()));
-        }
-        return std::make_unique<AsyncResultIntOnly>(ret);
-    };
-    PyObject* future = AsyncTaskThreadPoolForPy->Dispatch(task);
-    return future;
+    int ret = Exists(path);
+    
+    return PyLong_FromLong(ret);
 }
 
-static PyObject* PyWrapper_AsyncGet(PyObject* self, PyObject* args) 
+static int Get(const char* path, Py_buffer buffer, int size, int offset)
+{
+    int ret = -1;
+    int readSize;
+    uint64_t fd = UINT64_MAX;
+
+    ret = Open(path, O_RDONLY, fd);
+    if (ret != 0)
+        return ret;
+    
+    readSize = Read(path, fd, (char*)buffer.buf, size, offset);
+    if (readSize < 0)
+    {
+        Close(path, fd);
+        return ret;
+    }
+            
+    ret = Close(path, fd);
+    if (ret != 0)
+        return ret;
+
+    return ret;
+}
+static PyObject* PyWrapper_Get(PyObject* self, PyObject* args) 
 {
     char* path = nullptr;
     Py_buffer buffer;
@@ -835,41 +600,41 @@ static PyObject* PyWrapper_AsyncGet(PyObject* self, PyObject* args)
     if (!PyArg_ParseTuple(args, "sw*ii", &path, &buffer, &size, &offset)) 
         return nullptr;
 
-    auto task = [path, buffer, size, offset]() -> std::unique_ptr<AsyncResultBase>
-    {
-        int ret = -1;
-        int readSize;
-        uint64_t fd = UINT64_MAX;
-        try
-        {
-            ret = Open(path, O_RDONLY, fd);
-            if (ret != 0)
-                return std::make_unique<AsyncResultIntOnly>(ret);
-            
-            readSize = Read(path, fd, (char*)buffer.buf, size, offset);
-            if (readSize < 0)
-            {
-                Close(path, fd);
-                return std::make_unique<AsyncResultIntOnly>(readSize);
-            }
-            
-            ret = Close(path, fd);
-            if (ret != 0)
-                return std::make_unique<AsyncResultIntOnly>(ret);
-        }
-        catch (const std::exception& e)
-        {
-            if (fd != UINT64_MAX)
-                Close(path, fd);    // We believe Close never throw error currently.
-            return std::make_unique<AsyncResultBase>(strdup(e.what()));
-        }
-        return std::make_unique<AsyncResultIntOnly>(ret);
-    };
-    PyObject* future = AsyncTaskThreadPoolForPy->Dispatch(task);
-    return future;
+    int ret = Get(path, buffer, size, offset);
+
+    return PyLong_FromLong(ret);
 }
 
-static PyObject* PyWrapper_AsyncPut(PyObject* self, PyObject* args) 
+static int Put(const char* path, Py_buffer buffer, int size, int offset)
+{
+    int ret = -1;
+    uint64_t fd = UINT64_MAX;
+
+    ret = Create(path, O_WRONLY, fd);
+    if (ret != 0 && ret != -EEXIST)
+        return ret;
+
+    ret = Write(path, fd, (char*)buffer.buf, size, offset);
+    if (ret != 0)
+    {
+        Close(path, fd);
+        return ret;
+    }
+
+    ret = Flush(path, fd);
+    if (ret != 0)
+    {
+        Close(path, fd);
+        return ret;
+    }
+        
+    ret = Close(path, fd);
+    if (ret != 0)
+        return ret;
+
+    return ret;
+}
+static PyObject* PyWrapper_Put(PyObject* self, PyObject* args) 
 {
     char* path = nullptr;
     Py_buffer buffer;
@@ -878,44 +643,9 @@ static PyObject* PyWrapper_AsyncPut(PyObject* self, PyObject* args)
     if (!PyArg_ParseTuple(args, "sw*ii", &path, &buffer, &size, &offset)) 
         return nullptr;
 
-    auto task = [path, buffer, size, offset]() -> std::unique_ptr<AsyncResultBase>
-    {
-        int ret = -1;
-        uint64_t fd = UINT64_MAX;
-        try
-        {
-            ret = Create(path, O_WRONLY, fd);
-            if (ret != 0 && ret != -EEXIST)
-                return std::make_unique<AsyncResultIntOnly>(ret);
+    int ret = Put(path, buffer, size, offset);
 
-            ret = Write(path, fd, (char*)buffer.buf, size, offset);
-            if (ret != 0)
-            {
-                Close(path, fd);
-                return std::make_unique<AsyncResultIntOnly>(ret);
-            }
-
-            ret = Flush(path, fd);
-            if (ret != 0)
-            {
-                Close(path, fd);
-                return std::make_unique<AsyncResultIntOnly>(ret);
-            }
-            
-            ret = Close(path, fd);
-            if (ret != 0)
-                return std::make_unique<AsyncResultIntOnly>(ret);
-        }
-        catch (const std::exception& e)
-        {
-            if (fd != UINT64_MAX)
-                Close(path, fd);    // We believe Close never throw error currently.
-            return std::make_unique<AsyncResultBase>(strdup(e.what()));
-        }
-        return std::make_unique<AsyncResultIntOnly>(ret);
-    };
-    PyObject* future = AsyncTaskThreadPoolForPy->Dispatch(task);
-    return future;
+    return PyLong_FromLong(ret);
 }
 
 static PyMethodDef PyFalconFSInternalMethods[] = 
@@ -1081,18 +811,18 @@ static PyMethodDef PyFalconFSInternalMethods[] =
         "  content (list): Contain items which are (name, st_mode)"
     },
     {
-        "AsyncExists", 
-        PyWrapper_AsyncExists, 
+        "Exists", 
+        PyWrapper_Exists, 
         METH_VARARGS, 
         "Check file/directory exists in FalconFS\n"
         "Parameters:\n"
         "  path (str): Target file/directory path, must start with '/', which corresponding to mount point\n"
         "Returns:\n"
-        "  errno (int): Refer to errno in linux"
+        "  errno (int): Refer to errno in linux\n"
     },
     {
-        "AsyncGet", 
-        PyWrapper_AsyncGet, 
+        "Get", 
+        PyWrapper_Get, 
         METH_VARARGS, 
         "Get file content in FalconFS\n"
         "Parameters:\n"
@@ -1101,11 +831,11 @@ static PyMethodDef PyFalconFSInternalMethods[] =
         "  size (int): Requested size\n"
         "  offset (int): Read offset\n"
         "Returns:\n"
-        "  read size (int): read byte size"
+        "  errno (int): Refer to errno in linux\n"
     },
     {
-        "AsyncPut", 
-        PyWrapper_AsyncPut, 
+        "Put", 
+        PyWrapper_Put, 
         METH_VARARGS, 
         "Put data to file in FalconFS\n"
         "Parameters:\n"
@@ -1114,7 +844,7 @@ static PyMethodDef PyFalconFSInternalMethods[] =
         "  size (int): To write size\n"
         "  offset (int): Write offset\n"
         "Returns:\n"
-        "  write size (int): write byte size"
+        "  errno (int): Refer to errno in linux\n"
     },
     {
         NULL, 
@@ -1126,7 +856,6 @@ static PyMethodDef PyFalconFSInternalMethods[] =
 
 static int ModuleCleanup(PyObject* module) 
 {
-    g_ModuleVariables.Destroy();
     return 0;
 }
 
@@ -1144,14 +873,7 @@ static struct PyModuleDef PyFalconFSInternalModule = {
 
 extern "C" PyMODINIT_FUNC PyInit__pyfalconfs_internal(void) 
 {
-    {
-        std::lock_guard guard(AsyncTaskThreadPoolForPyMutex);
-        if (!AsyncTaskThreadPoolForPy)
-            AsyncTaskThreadPoolForPy = std::make_shared<AsyncTaskThreadPool>(8);
-    }
     PyObject* module = PyModule_Create(&PyFalconFSInternalModule);
-    if (!g_ModuleVariables.Init())
-        return nullptr;
 
     return module;
 }
