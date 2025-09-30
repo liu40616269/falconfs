@@ -18,8 +18,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-/* External declarations for shared memory */
-extern FalconPluginSharedData *falcon_plugin_shmem;
+static FalconPluginBackgroundData *g_plugin_data = NULL;
 
 /*
  * Load and execute all .so plugins from the specified directory
@@ -88,33 +87,37 @@ int FalconLoadPluginsFromDirectory(const char *plugin_dir)
                             (work_type == FALCON_PLUGIN_TYPE_INLINE) ? "INLINE" : "BACKGROUND")));
 
         if (work_type == FALCON_PLUGIN_TYPE_INLINE) {
-            /* For INLINE plugins, call work_func directly with shared data */
-            extern FalconPluginSharedData *falcon_plugin_shmem;
-            if (falcon_plugin_shmem) {
-                strncpy(falcon_plugin_shmem->plugin_name, entry->d_name, FALCON_PLUGIN_MAX_NAME_SIZE - 1);
-                strncpy(falcon_plugin_shmem->plugin_path, plugin_path, FALCON_PLUGIN_MAX_NAME_SIZE - 1);
-                if (falcon_plugin_custom_config) {
-                    strncpy(falcon_plugin_shmem->custom_config, falcon_plugin_custom_config, FALCON_PLUGIN_MAX_CONFIG_SIZE - 1);
-                }
-                ret = work_func(falcon_plugin_shmem);
-            } else {
-                ret = work_func(NULL);
+            /* For INLINE plugins, create temporary data and call work_func directly */
+            FalconPluginBackgroundData inline_data;
+            memset(&inline_data, 0, sizeof(FalconPluginBackgroundData));
+            strncpy(inline_data.plugin_name, entry->d_name, FALCON_PLUGIN_MAX_NAME_SIZE - 1);
+            strncpy(inline_data.plugin_path, plugin_path, FALCON_PLUGIN_MAX_NAME_SIZE - 1);
+            if (falcon_plugin_custom_config) {
+                strncpy(inline_data.custom_config, falcon_plugin_custom_config, FALCON_PLUGIN_MAX_CONFIG_SIZE - 1);
             }
+            inline_data.main_pid = getpid();
+            
+            ret = work_func(&inline_data);
             ereport(LOG, (errmsg("Plugin %s INLINE work result: %d", entry->d_name, ret)));
             cleanup_func();
             dlclose(dl_handle);
         } else {
-            /* For BACKGROUND plugins, setup shared memory and create worker */
+            /* For BACKGROUND plugins, prepare data for background worker */
             BackgroundWorker worker;
-            extern FalconPluginSharedData *falcon_plugin_shmem;
-
-            if (falcon_plugin_shmem) {
-                strncpy(falcon_plugin_shmem->plugin_name, entry->d_name, FALCON_PLUGIN_MAX_NAME_SIZE - 1);
-                strncpy(falcon_plugin_shmem->plugin_path, plugin_path, FALCON_PLUGIN_MAX_NAME_SIZE - 1);
-                if (falcon_plugin_custom_config) {
-                    strncpy(falcon_plugin_shmem->custom_config, falcon_plugin_custom_config, FALCON_PLUGIN_MAX_CONFIG_SIZE - 1);
-                }
+            
+            /* Allocate data structure for this plugin */
+            if (!g_plugin_data) {
+                g_plugin_data = (FalconPluginBackgroundData*)malloc(sizeof(FalconPluginBackgroundData));
             }
+            memset(g_plugin_data, 0, sizeof(FalconPluginBackgroundData));
+            
+            /* Fill information to pass to background worker */
+            strncpy(g_plugin_data->plugin_name, entry->d_name, FALCON_PLUGIN_MAX_NAME_SIZE - 1);
+            strncpy(g_plugin_data->plugin_path, plugin_path, FALCON_PLUGIN_MAX_NAME_SIZE - 1);
+            if (falcon_plugin_custom_config) {
+                strncpy(g_plugin_data->custom_config, falcon_plugin_custom_config, FALCON_PLUGIN_MAX_CONFIG_SIZE - 1);
+            }
+            g_plugin_data->main_pid = getpid();
 
             memset(&worker, 0, sizeof(BackgroundWorker));
             snprintf(worker.bgw_name, BGW_MAXLEN, "falcon_plugin_%s", entry->d_name);
@@ -153,53 +156,44 @@ void FalconPluginBackgroundWorkerMain(Datum main_arg)
     void *dl_handle = NULL;
     falcon_plugin_work_func_t work_func;
     int ret;
-    FalconPluginSharedData *shared_data = NULL;
+    FalconPluginBackgroundData *plugin_data = NULL;
 
     BackgroundWorkerUnblockSignals();
 
-    /* Access shared memory to get plugin information */
-    bool found;
-    shared_data = ShmemInitStruct("FalconPluginData",
-                                 sizeof(FalconPluginSharedData),
-                                 &found);
-
-    if (!found || !shared_data || strlen(shared_data->plugin_path) == 0) {
-        ereport(ERROR, (errmsg("Plugin shared data not found in background worker")));
+    /* Get the plugin data passed from parent process */
+    /* Note: This data was copied during fork(), so it's safe to access */
+    plugin_data = g_plugin_data;
+    
+    if (!plugin_data || strlen(plugin_data->plugin_path) == 0) {
+        ereport(ERROR, (errmsg("Plugin data not found in background worker")));
         proc_exit(1);
     }
 
     ereport(LOG, (errmsg("Falcon plugin background worker started for: %s, PID: %d",
-                        shared_data->plugin_name, getpid())));
+                        plugin_data->plugin_name, getpid())));
 
-    dl_handle = dlopen(shared_data->plugin_path, RTLD_LAZY);
+    dl_handle = dlopen(plugin_data->plugin_path, RTLD_LAZY);
     if (!dl_handle) {
         ereport(ERROR, (errmsg("Failed to reload plugin in background worker: %s, error: %s",
-                              shared_data->plugin_path, dlerror())));
+                              plugin_data->plugin_path, dlerror())));
         proc_exit(1);
     }
 
     work_func = (falcon_plugin_work_func_t)dlsym(dl_handle, FALCON_PLUGIN_WORK_FUNC_NAME);
 
     if (!work_func) {
-        ereport(ERROR, (errmsg("Plugin %s missing work function in background worker", shared_data->plugin_name)));
+        ereport(ERROR, (errmsg("Plugin %s missing work function in background worker", plugin_data->plugin_name)));
         dlclose(dl_handle);
         proc_exit(1);
     }
 
-    ereport(LOG, (errmsg("Plugin %s background worker ready", shared_data->plugin_name)));
+    ereport(LOG, (errmsg("Plugin %s background worker ready", plugin_data->plugin_name)));
 
-    for (;;) {
-        CHECK_FOR_INTERRUPTS();
+    ret = work_func(plugin_data);
+    ereport(LOG, (errmsg("Plugin work function returned %d for background worker: %s",
+                        ret, plugin_data->plugin_name)));
 
-        ret = work_func(shared_data);
-        if (ret != 0) {
-            ereport(LOG, (errmsg("Plugin work function returned %d, stopping background worker: %s",
-                                ret, shared_data->plugin_name)));
-            break;
-        }
-    }
-
-    ereport(LOG, (errmsg("Plugin background worker stopping: %s", shared_data->plugin_name)));
+    ereport(LOG, (errmsg("Plugin background worker stopping: %s", plugin_data->plugin_name)));
     dlclose(dl_handle);
 
     proc_exit(0);

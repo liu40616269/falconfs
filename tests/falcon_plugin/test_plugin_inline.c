@@ -20,16 +20,17 @@ FalconPluginWorkType plugin_get_type(void)
     return FALCON_PLUGIN_TYPE_INLINE;
 }
 
-int plugin_work(const FalconPluginSharedData *shared_data)
+int plugin_work(const FalconPluginBackgroundData *data)
 {
     printf("[TEST PLUGIN INLINE] plugin_work() called\n");
-    if (shared_data) {
-        printf("[TEST PLUGIN INLINE] Plugin name: %s\n", shared_data->plugin_name);
-        printf("[TEST PLUGIN INLINE] Plugin path: %s\n", shared_data->plugin_path);
-        printf("[TEST PLUGIN INLINE] Custom config: %s\n", shared_data->custom_config);
+    if (data) {
+        printf("[TEST PLUGIN INLINE] Plugin name: %s\n", data->plugin_name);
+        printf("[TEST PLUGIN INLINE] Plugin path: %s\n", data->plugin_path);
+        printf("[TEST PLUGIN INLINE] Custom config: %s\n", data->custom_config);
+        printf("[TEST PLUGIN INLINE] Main PID: %d\n", data->main_pid);
     }
     g_work_called++;
-    return 1; // stop work for INLINE type
+    return 1;
 }
 
 void plugin_cleanup(void)

@@ -125,9 +125,9 @@ TEST_F(PluginFrameworkUT, BackgroundPluginFunctionCalls)
         EXPECT_EQ(work_result, 0);
     }
 
-    // Third call should return non-zero to stop (based on work limit in plugin)
+    // Background plugin now always returns 0 for success (simplified design)
     work_result = work_func(&test_data);
-    EXPECT_EQ(work_result, 1);
+    EXPECT_EQ(work_result, 0);
 
     dlclose(dl_handle);
 }
@@ -189,11 +189,8 @@ TEST_F(PluginFrameworkUT, BackgroundPluginStateTracking)
     for (int i = 1; i <= 5; i++) {
         int result = work_func(&test_data);
         EXPECT_EQ(test_get_work_count(), i);
-        if (i < 5) {
-            EXPECT_EQ(result, 0); // Continue working
-        } else {
-            EXPECT_EQ(result, 1); // Stop working
-        }
+        // Background plugin now always returns 0 for success (simplified design)
+        EXPECT_EQ(result, 0);
     }
 
     dlclose(dl_handle);

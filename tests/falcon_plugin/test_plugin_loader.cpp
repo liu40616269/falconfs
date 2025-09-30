@@ -201,7 +201,7 @@ TEST_F(PluginLoaderUT, VerifyBackgroundPluginHandling)
 
     // Test work function with null shared data
     int work_result = work_func(nullptr);
-    EXPECT_EQ(work_result, 0); // BACKGROUND plugins should return 0 to continue initially
+    EXPECT_EQ(work_result, 0);
 
     dlclose(dl_handle);
 }
@@ -323,7 +323,7 @@ TEST_F(PluginLoaderUT, EndToEndPluginWorkflow)
     strcpy(test_data.custom_config, "{\"test\": \"config\"}");
 
     int work_result = work_func(&test_data);
-    EXPECT_EQ(work_result, 0); // First call should return 0 to continue
+    EXPECT_EQ(work_result, 0);
 
     int close_result = dlclose(dl_handle);
     EXPECT_EQ(close_result, 0);
