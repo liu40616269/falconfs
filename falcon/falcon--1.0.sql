@@ -286,6 +286,12 @@ CREATE FUNCTION pg_catalog.falcon_meta_call_by_serialized_shmem_internal(type in
     AS 'MODULE_PATHNAME', $$falcon_meta_call_by_serialized_shmem_internal$$;
 COMMENT ON FUNCTION pg_catalog.falcon_meta_call_by_serialized_shmem_internal(type int, count int, shmem_shift bigint, signature bigint) IS 'falcon meta func by serialized shmem internal';
 
+CREATE FUNCTION pg_catalog.falcon_kv_meta_call_by_shmem_internal(operation_type int, count int, shmem_shift bigint, signature bigint)
+    RETURNS bigint
+    LANGUAGE C STRICT
+    AS 'MODULE_PATHNAME', $$falcon_kv_meta_call_by_shmem_internal$$;
+COMMENT ON FUNCTION pg_catalog.falcon_kv_meta_call_by_shmem_internal(operation_type int, count int, shmem_shift bigint, signature bigint) IS 'falcon batch meta func using protobuf serialization';
+
 CREATE FUNCTION pg_catalog.falcon_meta_call_by_serialized_data(type int, count int, param bytea)
     RETURNS bytea
     LANGUAGE C STRICT
@@ -337,3 +343,4 @@ CREATE TABLE falcon.falcon_filesliceid_table(
 CREATE UNIQUE INDEX falcon_filesliceid_table_index ON falcon.falcon_filesliceid_table using btree(keystr);
 ALTER TABLE falcon.falcon_filesliceid_table SET SCHEMA pg_catalog;
 GRANT SELECT ON pg_catalog.falcon_filesliceid_table TO public;
+

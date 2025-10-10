@@ -34,9 +34,300 @@ enum MetaServiceType {
     FETCH_SLICE_ID = 26;
 }
 
+enum SerializationFormat {
+    FLATBUFFER = 0;
+    PROTOBUF = 1;    // Protobuf serialization
+}
+
+// ============================================================
+// Request messages for metadata operations
+// ============================================================
+
+// PathOnly: MKDIR, CREATE, STAT, OPEN, UNLINK, OPENDIR, RMDIR
+message PathOnlyRequestData {
+    string path = 1;
+}
+
+// CLOSE
+message CloseRequestData {
+    string path = 1;
+    int64 st_size = 2;
+    uint64 st_mtim = 3;
+    int32 node_id = 4;
+}
+
+// READDIR
+message ReadDirRequestData {
+    string path = 1;
+    int32 max_read_count = 2;
+    int32 last_shard_index = 3;
+    string last_file_name = 4;
+}
+
+// MKDIR_SUB_MKDIR
+message MkdirSubMkdirRequestData {
+    uint64 parent_id = 1;
+    string name = 2;
+    uint64 inode_id = 3;
+}
+
+// MKDIR_SUB_CREATE
+message MkdirSubCreateRequestData {
+    uint64 parent_id_part_id = 1;
+    string name = 2;
+    uint64 inode_id = 3;
+    uint32 st_mode = 4;
+    uint64 st_mtim = 5;
+    int64 st_size = 6;
+}
+
+// RMDIR_SUB_RMDIR
+message RmdirSubRmdirRequestData {
+    uint64 parent_id = 1;
+    string name = 2;
+}
+
+// RMDIR_SUB_UNLINK
+message RmdirSubUnlinkRequestData {
+    uint64 parent_id_part_id = 1;
+    string name = 2;
+}
+
+// RENAME
+message RenameRequestData {
+    string src = 1;
+    string dst = 2;
+}
+
+// RENAME_SUB_RENAME_LOCALLY
+message RenameSubRenameLocallyRequestData {
+    uint64 src_parent_id = 1;
+    uint64 src_parent_id_part_id = 2;
+    string src_name = 3;
+    uint64 dst_parent_id = 4;
+    uint64 dst_parent_id_part_id = 5;
+    string dst_name = 6;
+    bool target_is_directory = 7;
+    uint64 directory_inode_id = 8;
+    int32 src_lock_order = 9;
+}
+
+// RENAME_SUB_CREATE
+message RenameSubCreateRequestData {
+    uint64 parentid_partid = 1;
+    string name = 2;
+    uint64 st_ino = 3;
+    uint64 st_dev = 4;
+    uint32 st_mode = 5;
+    uint64 st_nlink = 6;
+    uint32 st_uid = 7;
+    uint32 st_gid = 8;
+    uint64 st_rdev = 9;
+    int64 st_size = 10;
+    int64 st_blksize = 11;
+    int64 st_blocks = 12;
+    uint64 st_atim = 13;
+    uint64 st_mtim = 14;
+    uint64 st_ctim = 15;
+    int32 node_id = 16;
+}
+
+// UTIMENS
+message UtimeNsRequestData {
+    string path = 1;
+    uint64 st_atim = 2;
+    uint64 st_mtim = 3;
+}
+
+// CHOWN
+message ChownRequestData {
+    string path = 1;
+    uint32 st_uid = 2;
+    uint32 st_gid = 3;
+}
+
+// CHMOD
+message ChmodRequestData {
+    string path = 1;
+    uint64 st_mode = 2;
+}
+
+// KV_PUT
+message KvPutRequestData {
+    string key = 1;
+    uint32 value_len = 2;
+    uint32 slice_num = 3;
+    repeated FormDataSliceProto slices = 4;
+}
+
+// KV_GET, KV_DEL
+message KvKeyOnlyRequestData {
+    string key = 1;
+}
+
+// PLAIN_COMMAND
+message PlainCommandRequestData {
+    string command = 1;
+}
+
+// SLICE_GET, SLICE_DEL
+message SliceIndexRequestData {
+    string filename = 1;
+    uint64 inode_id = 2;
+    uint32 chunk_id = 3;
+}
+
+// SLICE_PUT
+message SlicePutRequestData {
+    string filename = 1;
+    uint32 slice_num = 2;
+    repeated SliceInfoProto slices = 3;
+}
+
+// FETCH_SLICE_ID
+message FetchSliceIdRequestData {
+    uint32 count = 1;
+    uint32 type = 2;
+}
+
+// ============================================================
+// Response messages for metadata operations
+// ============================================================
+
+message StatResponseData {
+    int32 error_code = 1;
+    uint64 st_ino = 2;
+    uint64 st_dev = 3;
+    uint32 st_mode = 4;
+    uint64 st_nlink = 5;
+    uint32 st_uid = 6;
+    uint32 st_gid = 7;
+    uint64 st_rdev = 8;
+    int64 st_size = 9;
+    int64 st_blksize = 10;
+    int64 st_blocks = 11;
+    uint64 st_atim = 12;
+    uint64 st_mtim = 13;
+    uint64 st_ctim = 14;
+}
+
+message CreateResponseData {
+    int32 error_code = 1;
+    uint64 st_ino = 2;
+    int64 node_id = 3;
+    uint64 st_dev = 4;
+    uint32 st_mode = 5;
+    uint64 st_nlink = 6;
+    uint32 st_uid = 7;
+    uint32 st_gid = 8;
+    uint64 st_rdev = 9;
+    int64 st_size = 10;
+    int64 st_blksize = 11;
+    int64 st_blocks = 12;
+    uint64 st_atim = 13;
+    uint64 st_mtim = 14;
+    uint64 st_ctim = 15;
+}
+
+message OpenResponseData {
+    int32 error_code = 1;
+    uint64 st_ino = 2;
+    int64 node_id = 3;
+    uint64 st_dev = 4;
+    uint32 st_mode = 5;
+    uint64 st_nlink = 6;
+    uint32 st_uid = 7;
+    uint32 st_gid = 8;
+    uint64 st_rdev = 9;
+    int64 st_size = 10;
+    int64 st_blksize = 11;
+    int64 st_blocks = 12;
+    uint64 st_atim = 13;
+    uint64 st_mtim = 14;
+    uint64 st_ctim = 15;
+}
+
+message UnlinkResponseData {
+    int32 error_code = 1;
+    uint64 st_ino = 2;
+    int64 st_size = 3;
+    int64 node_id = 4;
+}
+
+message OpenDirResponseData {
+    int32 error_code = 1;
+    uint64 st_ino = 2;
+}
+
+message OneReadDirEntry {
+    string file_name = 1;
+    uint32 st_mode = 2;
+}
+
+message ReadDirResponseData {
+    int32 error_code = 1;
+    int32 last_shard_index = 2;
+    string last_file_name = 3;
+    repeated OneReadDirEntry entries = 4;
+}
+
+message SimpleResponseData {
+    int32 error_code = 1;
+}
+
+message FormDataSliceProto {
+    uint64 value_key = 1;
+    uint64 location = 2;
+    uint32 size = 3;
+}
+
+message KvGetResponseData {
+    int32 error_code = 1;
+    string key = 2;
+    uint32 value_len = 3;
+    uint32 slice_num = 4;
+    repeated FormDataSliceProto slices = 5;
+}
+
+message SliceInfoProto {
+    uint64 inode_id = 1;
+    uint32 chunk_id = 2;
+    uint64 slice_id = 3;
+    uint32 slice_size = 4;
+    uint32 slice_offset = 5;
+    uint32 slice_len = 6;
+    uint32 slice_loc1 = 7;
+    uint32 slice_loc2 = 8;
+}
+
+message SliceGetResponseData {
+    int32 error_code = 1;
+    uint32 slice_num = 2;
+    repeated SliceInfoProto slices = 3;
+}
+
+message FetchSliceIdResponseData {
+    int32 error_code = 1;
+    uint64 start = 2;
+    uint64 end = 3;
+}
+
+message PlainCommandResponseData {
+    int32 error_code = 1;
+    uint32 row = 2;
+    uint32 col = 3;
+    repeated string data = 4;
+}
+
+// Batch response wrapper - contains multiple responses
+message BatchResponseData {
+    repeated bytes responses = 1;  // Each element is a serialized response message
+}
+
 message MetaRequest {
     bool allow_batch_with_others = 1;
     repeated MetaServiceType type = 2;
+    SerializationFormat format = 3;
 }
 
 message Empty {
