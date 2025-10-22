@@ -9,6 +9,7 @@
 #include <vector>
 #include <chrono>
 #include "falcon_meta_rpc.pb.h"
+#include "concurrentqueue/concurrentqueue.h"
 
 namespace falcon::meta_proto
 {
@@ -51,13 +52,19 @@ class AsyncMetaServiceJob {
 class Task {
   public:
     bool isBatch;
-    std::vector<falcon::meta_proto::AsyncMetaServiceJob *> jobList;
-    Task(int n)
+    moodycamel::ConcurrentQueue<falcon::meta_proto::AsyncMetaServiceJob *> jobList;
+    Task(int n) : jobList(n)
     {
         isBatch = false;
-        jobList.reserve(n);
     }
     Task() { isBatch = false; }
+};
+
+class WorkerTask {
+  public:
+    bool isBatch;
+    std::vector<falcon::meta_proto::AsyncMetaServiceJob *> jobList;
+    WorkerTask() { isBatch = false; }
 };
 
 #endif

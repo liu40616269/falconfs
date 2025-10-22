@@ -36,6 +36,10 @@ else
     else
         echo "synchronous_standby_names='${sync_replica_num}(*)'" >>/home/falconMeta/data/metadata/postgresql.conf
     fi
+    echo "falcon_connection_pool.batch_size = 1024" >> /home/falconMeta/data/metadata/postgresql.conf
+    echo "falcon_connection_pool.wait_adjust = 1" >> /home/falconMeta/data/metadata/postgresql.conf
+    echo "falcon_connection_pool.wait_min = 1" >> /home/falconMeta/data/metadata/postgresql.conf
+    echo "falcon_connection_pool.wait_max = 500" >> /home/falconMeta/data/metadata/postgresql.conf
     pg_ctl start -D /home/falconMeta/data/metadata
 fi
 
