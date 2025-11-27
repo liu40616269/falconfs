@@ -23,4 +23,9 @@ python_interface/pyfalconfs/*.so
 
 *__pycache__*
 *pyfalconfs.egg-info*
+cloud_native/falcon_cm/cm/__pycache__
+cloud_native/falcon_cm/postgres/__pycache__
+cloud_native/falcon_cm/tool/__pycache__
+cloud_native/falcon_cm/utils/__pycache__
 tests/regress/falconfs
+tests/falcon_cm/__pycache__
