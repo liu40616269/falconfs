@@ -2464,7 +2464,7 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
 
         ErrorData *errorData = CopyErrorData();
         FlushErrorState();
-        info->errorCode = errorData->sqlerrcode == ERRCODE_UNIQUE_VIOLATION ? UNIQUE_VIOLATION : UNKNOWN;
+        info->errorCode = errorData->sqlerrcode == ERRCODE_UNIQUE_VIOLATION ? SUCCESS : UNKNOWN;
         FreeErrorData(errorData);
     }
     PG_END_TRY();
