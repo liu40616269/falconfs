@@ -2406,6 +2406,7 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
     TupleDesc tupleDesc = NULL;
     Datum *dkeys = NULL;
 
+    BeginInternalSubTransaction(NULL);
     PG_TRY();
     {
         kvmetaRel = table_open(GetRelationOidByName_FALCON(kvmetaShardName->data), RowExclusiveLock);
@@ -2450,20 +2451,13 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
         heap_freetuple(heapTuple);
 
         table_close(kvmetaRel, RowExclusiveLock);
+        ReleaseCurrentSubTransaction();
     }
     PG_CATCH();
     {
-        if (dkeys != NULL) {
-            pfree(dkeys);
-            dkeys = NULL;
-        }
-        
-        if (kvmetaRel != NULL) {
-            table_close(kvmetaRel, RowExclusiveLock);
-        }
-
         ErrorData *errorData = CopyErrorData();
         FlushErrorState();
+        RollbackAndReleaseCurrentSubTransaction();
         info->errorCode = errorData->sqlerrcode == ERRCODE_UNIQUE_VIOLATION ? SUCCESS : UNKNOWN;
         FreeErrorData(errorData);
     }
