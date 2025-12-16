@@ -1283,6 +1283,8 @@ void FalconRmdirHandle(MetaProcessInfo info)
                               "RmdirSubUnlink is supposed to be successful, "
                               "but it failed.");
     }
+
+    info->errorCode = SUCCESS;
 }
 
 void FalconRmdirSubRmdirHandle(MetaProcessInfo info)
@@ -2235,6 +2237,7 @@ void FalconSlicePutHandle(SliceProcessInfo *infoArray, int count)
 {
     for (int i = 0; i < count; ++i) {
         SliceProcessInfo info = infoArray[i];
+        info->errorCode = SUCCESS;
 
         int shardId, workerId;
         uint16_t partId = HashPartId(info->name);
@@ -2360,6 +2363,7 @@ void FalconSliceDelHandle(SliceProcessInfo *infoArray, int count)
 
     for (int i = 0; i < count; ++i) {
         SliceProcessInfo info = infoArray[i];
+        info->errorCode = SUCCESS;
 
         int shardId, workerId;
         uint16_t partId = HashPartId(info->name);
@@ -2405,6 +2409,7 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
     Relation kvmetaRel = NULL;
     TupleDesc tupleDesc = NULL;
     Datum *dkeys = NULL;
+    MemoryContext savedContext = CurrentMemoryContext;
 
     BeginInternalSubTransaction(NULL);
     PG_TRY();
@@ -2455,6 +2460,7 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
     }
     PG_CATCH();
     {
+        MemoryContextSwitchTo(savedContext);
         ErrorData *errorData = CopyErrorData();
         FlushErrorState();
         RollbackAndReleaseCurrentSubTransaction();

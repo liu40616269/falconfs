@@ -651,11 +651,6 @@ bool FalconMetaServiceSerializer::DeserializeResponseFromFlatBuffers(
     response->opcode = operation;
     response->status = meta_response->error_code();
 
-    if (response->status != 0) {
-        response->data = nullptr;
-        return true;
-    }
-
     switch (operation) {
         case DFC_MKDIR:
         case DFC_RMDIR:
