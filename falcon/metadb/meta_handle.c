@@ -2409,12 +2409,12 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
     Relation kvmetaRel = NULL;
     TupleDesc tupleDesc = NULL;
     Datum *dkeys = NULL;
-    MemoryContext savedContext = CurrentMemoryContext;
 
-    BeginInternalSubTransaction(NULL);
+    kvmetaRel = table_open(GetRelationOidByName_FALCON(kvmetaShardName->data), RowExclusiveLock);
+    CatalogIndexState indexState = CatalogOpenIndexes(kvmetaRel);
+
     PG_TRY();
     {
-        kvmetaRel = table_open(GetRelationOidByName_FALCON(kvmetaShardName->data), RowExclusiveLock);
         tupleDesc = RelationGetDescr(kvmetaRel);
 
         Datum values[Natts_falcon_kvmeta_table];
@@ -2452,18 +2452,26 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
         dkeys = NULL;
 
         HeapTuple heapTuple = heap_form_tuple(tupleDesc, values, isNulls);
-        CatalogTupleInsert(kvmetaRel, heapTuple);
+        CatalogTupleInsertWithInfo(kvmetaRel, heapTuple, indexState);
         heap_freetuple(heapTuple);
 
+        CatalogCloseIndexes(indexState);
         table_close(kvmetaRel, RowExclusiveLock);
-        ReleaseCurrentSubTransaction();
     }
     PG_CATCH();
     {
-        MemoryContextSwitchTo(savedContext);
+        if (dkeys != NULL) {
+            pfree(dkeys);
+            dkeys = NULL;
+        }
+
+        CatalogCloseIndexes(indexState);
+        if (kvmetaRel != NULL) {
+            table_close(kvmetaRel, RowExclusiveLock);
+        }
+
         ErrorData *errorData = CopyErrorData();
         FlushErrorState();
-        RollbackAndReleaseCurrentSubTransaction();
         info->errorCode = errorData->sqlerrcode == ERRCODE_UNIQUE_VIOLATION ? SUCCESS : UNKNOWN;
         FreeErrorData(errorData);
     }
