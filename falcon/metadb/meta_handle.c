@@ -364,7 +364,7 @@ void FalconMkdirSubCreateHandle(MetaProcessInfo *infoArray, int count)
                                  info->name,
                                  0,
                                  info->st_mode,
-                                 1,
+                                 2,
                                  0,
                                  0,
                                  0,
