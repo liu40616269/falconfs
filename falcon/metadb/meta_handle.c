@@ -1367,7 +1367,7 @@ void FalconRmdirSubUnlinkHandle(MetaProcessInfo info)
                                                    NULL,
                                                    NULL,
                                                    &nlink,
-                                                   -1,
+                                                   -2,
                                                    NULL,
                                                    NULL,
                                                    NULL,
@@ -1378,7 +1378,7 @@ void FalconRmdirSubUnlinkHandle(MetaProcessInfo info)
                                                    NULL,
                                                    NULL,
                                                    NULL);
-    if (nlink != 1)
+    if (nlink != 2)
         FALCON_ELOG_ERROR(PROGRAM_ERROR, "unexpected.");
     if (!fileExist)
         FALCON_ELOG_ERROR_EXTENDED(FILE_NOT_EXISTS,
