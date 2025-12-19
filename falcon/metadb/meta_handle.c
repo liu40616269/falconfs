@@ -2399,6 +2399,8 @@ void FalconSliceDelHandle(SliceProcessInfo *infoArray, int count)
 
 void FalconKvmetaPutHandle(KvMetaProcessInfo info)
 {
+    MemoryContext oldcontext = CurrentMemoryContext;
+
     int shardId, workerId;
     uint16_t partId = HashPartId(info->userkey);
     SearchShardInfoByShardValue(partId, &shardId, &workerId);
@@ -2460,6 +2462,10 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
     }
     PG_CATCH();
     {
+        MemoryContextSwitchTo(oldcontext);
+        ErrorData *errorData = CopyErrorData();
+        FlushErrorState();
+
         if (dkeys != NULL) {
             pfree(dkeys);
             dkeys = NULL;
@@ -2470,8 +2476,6 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
             table_close(kvmetaRel, RowExclusiveLock);
         }
 
-        ErrorData *errorData = CopyErrorData();
-        FlushErrorState();
         info->errorCode = errorData->sqlerrcode == ERRCODE_UNIQUE_VIOLATION ? SUCCESS : UNKNOWN;
         FreeErrorData(errorData);
     }
