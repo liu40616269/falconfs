@@ -12,16 +12,12 @@
 #include "connection_pool/task.h"
 #include <brpc/controller.h>
 #include <google/protobuf/stubs/callback.h>
-#include <libpq-fe.h>
-#include <sstream>
 #include <cstring>
-#include <thread>
 #include <cstdlib>
 #include <vector>
 #include <mutex>
 
 extern "C" {
-#include "postgres.h"
 #define FALCON_REMOTE_CONNECTION_DEF_SERIALIZED_DATA_IMPLEMENT
 #include "remote_connection_utils/serialized_data.h"
 }
@@ -37,7 +33,7 @@ static void HandleFalconMetaResponse(brpc::Controller* cntl,
     response.opcode = original_job->GetRequest().operation;
 
     if (cntl->Failed()) {
-        elog(WARNING, "[FalconMetaService] RPC failed: %s", cntl->ErrorText().c_str());
+        fprintf(stderr, "[WARNING] [FalconMetaService] RPC failed: %s\n", cntl->ErrorText().c_str());
         response.status = -1;
         response.data = nullptr;
     } else {
@@ -45,7 +41,7 @@ static void HandleFalconMetaResponse(brpc::Controller* cntl,
                 cntl->response_attachment(),
                 &response,
                 original_job->GetRequest().operation)) {
-            elog(WARNING, "[FalconMetaService] Failed to deserialize response for opcode=%d",
+            fprintf(stderr, "[WARNING] [FalconMetaService] Failed to deserialize response for opcode=%d\n",
                  static_cast<int>(original_job->GetRequest().operation));
             response.status = -1;
         }
@@ -89,18 +85,18 @@ bool FalconMetaService::Init(int port, int pool_size)
     }
 
     if (port <= 0 || port > 65535) {
-        elog(WARNING, "[FalconMetaService] Invalid port number: %d", port);
+        fprintf(stderr, "[WARNING] [FalconMetaService] Invalid port number: %d\n", port);
         return false;
     }
 
     if (pool_size <= 0) {
-        elog(WARNING, "[FalconMetaService] Invalid pool size: %d", pool_size);
+        fprintf(stderr, "[WARNING] [FalconMetaService] Invalid pool size: %d\n", pool_size);
         return false;
     }
 
     char* user_name = getenv("USER");
     if (!user_name) {
-        elog(WARNING, "[FalconMetaService] Cannot get USER from environment");
+        fprintf(stderr, "[WARNING] [FalconMetaService] Cannot get USER from environment\n");
         return false;
     }
 
@@ -108,13 +104,13 @@ bool FalconMetaService::Init(int port, int pool_size)
         pgConnectionPool = std::make_shared<PGConnectionPool>(
             port, user_name, pool_size, 20, 400);
 
-        elog(LOG, "[FalconMetaService] Initialized with: port=%d, user=%s, poolSize=%d",
+        fprintf(stderr, "[LOG] [FalconMetaService] Initialized with: port=%d, user=%s, poolSize=%d\n",
              port, user_name, pool_size);
 
         initialized = true;
         return true;
     } catch (const std::exception& e) {
-        elog(WARNING, "[FalconMetaService] Failed to initialize connection pool: %s", e.what());
+        fprintf(stderr, "[WARNING] [FalconMetaService] Failed to initialize connection pool: %s\n", e.what());
         return false;
     }
 }
@@ -130,7 +126,7 @@ FalconMetaService::~FalconMetaService()
 int FalconMetaService::DispatchFalconMetaServiceJob(AsyncFalconMetaServiceJob* job)
 {
     if (pgConnectionPool == nullptr) {
-        elog(WARNING, "[FalconMetaService] DispatchJob failed: connection pool is null");
+        fprintf(stderr, "[WARNING] [FalconMetaService] DispatchJob failed: connection pool is null\n");
         if (job != nullptr) {
             job->GetResponse().status = -1;
             job->Done();
@@ -141,7 +137,7 @@ int FalconMetaService::DispatchFalconMetaServiceJob(AsyncFalconMetaServiceJob* j
 
     FalconMetaServiceRequest& request = job->GetRequest();
 
-    elog(LOG, "[FalconMetaService] DispatchFalconMetaServiceJob: opcode=%d(%s)",
+    fprintf(stderr, "[LOG] [FalconMetaService] DispatchFalconMetaServiceJob: opcode=%d(%s)\n",
          static_cast<int>(request.operation),
          FalconMetaOperationTypeName(request.operation));
 
@@ -152,7 +148,7 @@ int FalconMetaService::DispatchFalconMetaServiceJob(AsyncFalconMetaServiceJob* j
     FalconErrorCode serializeError = FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             request, proto_request, &cntl->request_attachment());
     if (serializeError != SUCCESS) {
-        elog(WARNING, "[FalconMetaService] Failed to serialize request for opcode=%d, error=%d",
+        fprintf(stderr, "[WARNING] [FalconMetaService] Failed to serialize request for opcode=%d, error=%d\n",
              static_cast<int>(request.operation), static_cast<int>(serializeError));
         job->GetResponse().status = serializeError;
         job->Done();
@@ -179,24 +175,13 @@ int FalconMetaService::SubmitFalconMetaRequest(const FalconMetaServiceRequest& r
                                                void* user_context)
 {
     if (!initialized) {
-        elog(WARNING, "[FalconMetaService] Service not initialized. Call Init() first.");
+        fprintf(stderr, "[WARNING] [FalconMetaService] Service not initialized. Call Init() first.\n");
         return -1;
     }
 
-    elog(LOG, "[FalconMetaService] SubmitFalconMetaRequest: opcode=%d(%s)",
+    fprintf(stderr, "[LOG] [FalconMetaService] SubmitFalconMetaRequest: opcode=%d(%s)\n",
          static_cast<int>(request.operation),
          FalconMetaOperationTypeName(request.operation));
-
-    // Debug: 打印路径参数
-    if (const PathOnlyParam* p = meta_param_helper::Get<PathOnlyParam>(request.file_params)) {
-        elog(LOG, "[FalconMetaService] SubmitFalconMetaRequest: path=%s", p->path.c_str());
-    } else if (const RenameParam* p = meta_param_helper::Get<RenameParam>(request.file_params)) {
-        elog(LOG, "[FalconMetaService] SubmitFalconMetaRequest: src=%s, dst=%s", p->src.c_str(), p->dst.c_str());
-    } else if (const MkdirSubCreateParam* p = meta_param_helper::Get<MkdirSubCreateParam>(request.file_params)) {
-        elog(LOG, "[FalconMetaService] SubmitFalconMetaRequest: name=%s, parent_id=%lu", p->name.c_str(), p->parent_id_part_id);
-    } else if (const MkdirSubMkdirParam* p = meta_param_helper::Get<MkdirSubMkdirParam>(request.file_params)) {
-        elog(LOG, "[FalconMetaService] SubmitFalconMetaRequest: name=%s, parent_id=%lu", p->name.c_str(), p->parent_id);
-    }
 
     AsyncFalconMetaServiceJob* job = new AsyncFalconMetaServiceJob(request, callback, user_context);
 
@@ -290,7 +275,7 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             const PathOnlyParam* param = meta_param_helper::Get<PathOnlyParam>(request.file_params);
             if (!param) return ARGUMENT_ERROR;
             if (!ValidatePathComponentLengths(param->path)) {
-                elog(WARNING, "[FalconMetaService] Path component exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Path component exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->path.c_str());
                 return INVALID_PARAMETER;
             }
@@ -305,7 +290,7 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             const CloseParam* param = meta_param_helper::Get<CloseParam>(request.file_params);
             if (!param) return ARGUMENT_ERROR;
             if (!ValidatePathComponentLengths(param->path)) {
-                elog(WARNING, "[FalconMetaService] Path component exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Path component exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->path.c_str());
                 return INVALID_PARAMETER;
             }
@@ -321,7 +306,7 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             const ReadDirParam* param = meta_param_helper::Get<ReadDirParam>(request.file_params);
             if (!param) return ARGUMENT_ERROR;
             if (!ValidatePathComponentLengths(param->path)) {
-                elog(WARNING, "[FalconMetaService] Path component exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Path component exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->path.c_str());
                 return INVALID_PARAMETER;
             }
@@ -338,7 +323,7 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             const MkdirSubMkdirParam* param = meta_param_helper::Get<MkdirSubMkdirParam>(request.file_params);
             if (!param) return ARGUMENT_ERROR;
             if (!ValidateNameLength(param->name)) {
-                elog(WARNING, "[FalconMetaService] Name exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Name exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->name.c_str());
                 return INVALID_PARAMETER;
             }
@@ -354,7 +339,7 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             const MkdirSubCreateParam* param = meta_param_helper::Get<MkdirSubCreateParam>(request.file_params);
             if (!param) return ARGUMENT_ERROR;
             if (!ValidateNameLength(param->name)) {
-                elog(WARNING, "[FalconMetaService] Name exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Name exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->name.c_str());
                 return INVALID_PARAMETER;
             }
@@ -371,7 +356,7 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             const RmdirSubRmdirParam* param = meta_param_helper::Get<RmdirSubRmdirParam>(request.file_params);
             if (!param) return ARGUMENT_ERROR;
             if (!ValidateNameLength(param->name)) {
-                elog(WARNING, "[FalconMetaService] Name exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Name exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->name.c_str());
                 return INVALID_PARAMETER;
             }
@@ -386,7 +371,7 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             const RmdirSubUnlinkParam* param = meta_param_helper::Get<RmdirSubUnlinkParam>(request.file_params);
             if (!param) return ARGUMENT_ERROR;
             if (!ValidateNameLength(param->name)) {
-                elog(WARNING, "[FalconMetaService] Name exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Name exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->name.c_str());
                 return INVALID_PARAMETER;
             }
@@ -402,12 +387,12 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             const RenameParam* param = meta_param_helper::Get<RenameParam>(request.file_params);
             if (!param) return ARGUMENT_ERROR;
             if (!ValidatePathComponentLengths(param->src)) {
-                elog(WARNING, "[FalconMetaService] Source path component exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Source path component exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->src.c_str());
                 return INVALID_PARAMETER;
             }
             if (!ValidatePathComponentLengths(param->dst)) {
-                elog(WARNING, "[FalconMetaService] Destination path component exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Destination path component exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->dst.c_str());
                 return INVALID_PARAMETER;
             }
@@ -423,12 +408,12 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             const RenameSubRenameLocallyParam* param = meta_param_helper::Get<RenameSubRenameLocallyParam>(request.file_params);
             if (!param) return ARGUMENT_ERROR;
             if (!ValidateNameLength(param->src_name)) {
-                elog(WARNING, "[FalconMetaService] Source name exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Source name exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->src_name.c_str());
                 return INVALID_PARAMETER;
             }
             if (!ValidateNameLength(param->dst_name)) {
-                elog(WARNING, "[FalconMetaService] Destination name exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Destination name exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->dst_name.c_str());
                 return INVALID_PARAMETER;
             }
@@ -447,7 +432,7 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             const RenameSubCreateParam* param = meta_param_helper::Get<RenameSubCreateParam>(request.file_params);
             if (!param) return ARGUMENT_ERROR;
             if (!ValidateNameLength(param->name)) {
-                elog(WARNING, "[FalconMetaService] Name exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Name exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->name.c_str());
                 return INVALID_PARAMETER;
             }
@@ -466,7 +451,7 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             const UtimeNsParam* param = meta_param_helper::Get<UtimeNsParam>(request.file_params);
             if (!param) return ARGUMENT_ERROR;
             if (!ValidatePathComponentLengths(param->path)) {
-                elog(WARNING, "[FalconMetaService] Path component exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Path component exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->path.c_str());
                 return INVALID_PARAMETER;
             }
@@ -482,7 +467,7 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             const ChownParam* param = meta_param_helper::Get<ChownParam>(request.file_params);
             if (!param) return ARGUMENT_ERROR;
             if (!ValidatePathComponentLengths(param->path)) {
-                elog(WARNING, "[FalconMetaService] Path component exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Path component exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->path.c_str());
                 return INVALID_PARAMETER;
             }
@@ -498,7 +483,7 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
             const ChmodParam* param = meta_param_helper::Get<ChmodParam>(request.file_params);
             if (!param) return ARGUMENT_ERROR;
             if (!ValidatePathComponentLengths(param->path)) {
-                elog(WARNING, "[FalconMetaService] Path component exceeds %zu bytes: %s",
+                fprintf(stderr, "[WARNING] [FalconMetaService] Path component exceeds %zu bytes: %s\n",
                      FALCON_MAX_NAME_LENGTH, param->path.c_str());
                 return INVALID_PARAMETER;
             }
@@ -597,7 +582,7 @@ FalconErrorCode FalconMetaServiceSerializer::SerializeRequestToFlatBuffers(
     SerializedDataInit(&sd, NULL, 0, 0, NULL);
     char* buf = SerializedDataApplyForSegment(&sd, builder.GetSize());
     if (!buf) {
-        elog(WARNING, "[FalconMetaService] SerializeRequest: failed to allocate buffer, size=%u",
+        fprintf(stderr, "[WARNING] [FalconMetaService] SerializeRequest: failed to allocate buffer, size=%u\n",
              builder.GetSize());
         return OUT_OF_MEMORY;
     }
@@ -615,7 +600,7 @@ bool FalconMetaServiceSerializer::DeserializeResponseFromFlatBuffers(
     FalconMetaOperationType operation)
 {
     if (attachment.size() < sizeof(sd_size_t)) {
-        elog(WARNING, "[FalconMetaService] DeserializeResponse: attachment too small, size=%zu",
+        fprintf(stderr, "[WARNING] [FalconMetaService] DeserializeResponse: attachment too small, size=%zu\n",
              attachment.size());
         return false;
     }
@@ -625,13 +610,13 @@ bool FalconMetaServiceSerializer::DeserializeResponseFromFlatBuffers(
 
     SerializedData sd;
     if (!SerializedDataInit(&sd, &buffer[0], buffer.size(), buffer.size(), NULL)) {
-        elog(WARNING, "[FalconMetaService] DeserializeResponse: SerializedDataInit failed");
+        fprintf(stderr, "[WARNING] [FalconMetaService] DeserializeResponse: SerializedDataInit failed\n");
         return false;
     }
 
     sd_size_t item_size = SerializedDataNextSeveralItemSize(&sd, 0, 1);
     if (item_size == (sd_size_t)-1) {
-        elog(WARNING, "[FalconMetaService] DeserializeResponse: invalid item size");
+        fprintf(stderr, "[WARNING] [FalconMetaService] DeserializeResponse: invalid item size\n");
         return false;
     }
 
@@ -643,13 +628,69 @@ bool FalconMetaServiceSerializer::DeserializeResponseFromFlatBuffers(
 
     flatbuffers::Verifier verifier((uint8_t*)fbs_data, fbs_size);
     if (!verifier.VerifyBuffer<falcon::meta_fbs::MetaResponse>()) {
-        elog(WARNING, "[FalconMetaService] DeserializeResponse: FlatBuffers verification failed");
+        fprintf(stderr, "[WARNING] [FalconMetaService] DeserializeResponse: FlatBuffers verification failed\n");
         return false;
     }
 
     const falcon::meta_fbs::MetaResponse* meta_response = falcon::meta_fbs::GetMetaResponse(fbs_data);
     response->opcode = operation;
     response->status = meta_response->error_code();
+
+    if (response->status != SUCCESS) {
+        fprintf(stderr, "[LOG] [FalconMetaService] DeserializeResponse: opcode=%d, error_code=%d, creating empty response\n",
+             static_cast<int>(operation), response->status);
+
+        switch (operation) {
+            case DFC_CREATE: {
+                response->data = new CreateResponse();
+                memset(response->data, 0, sizeof(CreateResponse));
+                return true;
+            }
+            case DFC_STAT: {
+                response->data = new StatResponse();
+                memset(response->data, 0, sizeof(StatResponse));
+                return true;
+            }
+            case DFC_OPEN: {
+                response->data = new OpenResponse();
+                memset(response->data, 0, sizeof(OpenResponse));
+                return true;
+            }
+            case DFC_UNLINK: {
+                response->data = new UnlinkResponse();
+                memset(response->data, 0, sizeof(UnlinkResponse));
+                return true;
+            }
+            case DFC_READDIR: {
+                response->data = new ReadDirResponse();
+                memset(response->data, 0, sizeof(ReadDirResponse));
+                return true;
+            }
+            case DFC_OPENDIR: {
+                response->data = new OpenDirResponse();
+                memset(response->data, 0, sizeof(OpenDirResponse));
+                return true;
+            }
+            case DFC_GET_KV_META: {
+                response->data = new KvDataResponse();
+                memset(response->data, 0, sizeof(KvDataResponse));
+                return true;
+            }
+            case DFC_SLICE_GET: {
+                response->data = new SliceInfoResponse();
+                memset(response->data, 0, sizeof(SliceInfoResponse));
+                return true;
+            }
+            case DFC_PLAIN_COMMAND: {
+                response->data = new PlainCommandResponse();
+                memset(response->data, 0, sizeof(PlainCommandResponse));
+                return true;
+            }
+            default:
+                response->data = nullptr;
+                return true;
+        }
+    }
 
     switch (operation) {
         case DFC_MKDIR:
