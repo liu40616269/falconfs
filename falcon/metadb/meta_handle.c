@@ -588,6 +588,9 @@ void FalconCreateHandle(MetaProcessInfo *infoArray, int count, bool updateExiste
 
 void FalconStatHandle(MetaProcessInfo *infoArray, int count)
 {
+    instr_time start_time, t1, t2;
+    INSTR_TIME_SET_CURRENT(start_time);
+
     for (int i = 0; i < count; ++i) {
         MetaProcessInfo info = infoArray[i];
         //
@@ -640,6 +643,8 @@ void FalconStatHandle(MetaProcessInfo *infoArray, int count)
         entry->info = lappend(entry->info, info);
     }
     table_close(directoryRel, AccessShareLock);
+
+    INSTR_TIME_SET_CURRENT(t1);
 
     HASH_SEQ_STATUS status;
     hash_seq_init(&status, batchMetaProcessInfoListPerShard);
@@ -703,6 +708,15 @@ void FalconStatHandle(MetaProcessInfo *infoArray, int count)
 
         table_close(workerInodeRel, AccessShareLock);
     }
+
+    INSTR_TIME_SET_CURRENT(t2);
+
+    double path_parse = INSTR_TIME_GET_MILLISEC(t1) - INSTR_TIME_GET_MILLISEC(start_time);
+    double inode_scan = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(t1);
+    double total = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(start_time);
+
+    elog(LOG, "[handle_perf] STAT: count=%d, path_parse=%.3f, inode_scan=%.3f, total=%.3f ms",
+         count, path_parse, inode_scan, total);
 }
 
 void FalconOpenHandle(MetaProcessInfo *infoArray, int count)
@@ -2399,6 +2413,10 @@ void FalconSliceDelHandle(SliceProcessInfo *infoArray, int count)
 
 void FalconKvmetaPutHandle(KvMetaProcessInfo info)
 {
+    instr_time start_time, t1, t2, t3, t4;
+    INSTR_TIME_SET_CURRENT(start_time);
+
+    /* Save current memory context for error handling */
     MemoryContext oldcontext = CurrentMemoryContext;
 
     int shardId, workerId;
@@ -2407,6 +2425,8 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
     if (workerId != GetLocalServerId())
         CHECK_ERROR_CODE_WITH_RETURN(WRONG_WORKER);
 
+    INSTR_TIME_SET_CURRENT(t1);
+
     StringInfo kvmetaShardName = GetKvmetaShardName(shardId);
     Relation kvmetaRel = NULL;
     TupleDesc tupleDesc = NULL;
@@ -2414,6 +2434,8 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
 
     kvmetaRel = table_open(GetRelationOidByName_FALCON(kvmetaShardName->data), RowExclusiveLock);
     CatalogIndexState indexState = CatalogOpenIndexes(kvmetaRel);
+
+    INSTR_TIME_SET_CURRENT(t2);
 
     PG_TRY();
     {
@@ -2453,12 +2475,25 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
         pfree(dkeys);
         dkeys = NULL;
 
+        INSTR_TIME_SET_CURRENT(t3);
+
         HeapTuple heapTuple = heap_form_tuple(tupleDesc, values, isNulls);
         CatalogTupleInsertWithInfo(kvmetaRel, heapTuple, indexState);
         heap_freetuple(heapTuple);
 
+        INSTR_TIME_SET_CURRENT(t4);
+
         CatalogCloseIndexes(indexState);
         table_close(kvmetaRel, RowExclusiveLock);
+
+        double shard_lookup = INSTR_TIME_GET_MILLISEC(t1) - INSTR_TIME_GET_MILLISEC(start_time);
+        double table_open = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(t1);
+        double data_prepare = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(t2);
+        double tuple_insert = INSTR_TIME_GET_MILLISEC(t4) - INSTR_TIME_GET_MILLISEC(t3);
+        double total = INSTR_TIME_GET_MILLISEC(t4) - INSTR_TIME_GET_MILLISEC(start_time);
+
+        elog(LOG, "[handle_perf] KV_PUT: shard_lookup=%.3f, table_open=%.3f, data_prepare=%.3f, tuple_insert=%.3f, total=%.3f ms",
+             shard_lookup, table_open, data_prepare, tuple_insert, total);
     }
     PG_CATCH();
     {
@@ -2484,11 +2519,16 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
 
 void FalconKvmetaGetHandle(KvMetaProcessInfo info)
 {
+    instr_time start_time, t1, t2, t3, t4;
+    INSTR_TIME_SET_CURRENT(start_time);
+
     int shardId, workerId;
     uint16_t partId = HashPartId(info->userkey);
     SearchShardInfoByShardValue(partId, &shardId, &workerId);
     if (workerId != GetLocalServerId())
         CHECK_ERROR_CODE_WITH_RETURN(WRONG_WORKER);
+
+    INSTR_TIME_SET_CURRENT(t1);
 
     SetUpScanCaches();
 
@@ -2507,12 +2547,17 @@ void FalconKvmetaGetHandle(KvMetaProcessInfo info)
                                               LAST_FALCON_KVMETA_TABLE_SCANKEY_TYPE,
                                               scanKey);
     TupleDesc tupleDesc = RelationGetDescr(kvmetaRel);
+
+    INSTR_TIME_SET_CURRENT(t2);
+
     HeapTuple heapTuple = systable_getnext(scanDesc);
     if (!HeapTupleIsValid(heapTuple)) {
         systable_endscan(scanDesc);
         table_close(kvmetaRel, AccessShareLock);
         FALCON_ELOG_ERROR(ARGUMENT_ERROR, "FalconKvmetaGetHandle has received invalid input.");
     }
+
+    INSTR_TIME_SET_CURRENT(t3);
 
     bool isNull;
     ArrayType *arr = NULL;
@@ -2573,17 +2618,33 @@ void FalconKvmetaGetHandle(KvMetaProcessInfo info)
         array = NULL;
     }
 
+    INSTR_TIME_SET_CURRENT(t4);
+
     systable_endscan(scanDesc);
     table_close(kvmetaRel, AccessShareLock);
+
+    double shard_lookup = INSTR_TIME_GET_MILLISEC(t1) - INSTR_TIME_GET_MILLISEC(start_time);
+    double scan_begin = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(t1);
+    double tuple_fetch = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(t2);
+    double array_parse = INSTR_TIME_GET_MILLISEC(t4) - INSTR_TIME_GET_MILLISEC(t3);
+    double total = INSTR_TIME_GET_MILLISEC(t4) - INSTR_TIME_GET_MILLISEC(start_time);
+
+    elog(LOG, "[handle_perf] KV_GET: shard_lookup=%.3f, scan_begin=%.3f, tuple_fetch=%.3f, array_parse=%.3f, total=%.3f ms",
+         shard_lookup, scan_begin, tuple_fetch, array_parse, total);
 }
 
 void FalconKvmetaDelHandle(KvMetaProcessInfo info)
 {
+    instr_time start_time, t1, t2, t3, t4;
+    INSTR_TIME_SET_CURRENT(start_time);
+
     int shardId, workerId;
     uint16_t partId = HashPartId(info->userkey);
     SearchShardInfoByShardValue(partId, &shardId, &workerId);
     if (workerId != GetLocalServerId())
         CHECK_ERROR_CODE_WITH_RETURN(WRONG_WORKER);
+
+    INSTR_TIME_SET_CURRENT(t1);
 
     SetUpScanCaches();
 
@@ -2601,6 +2662,9 @@ void FalconKvmetaDelHandle(KvMetaProcessInfo info)
                                               GetTransactionSnapshot(),
                                               LAST_FALCON_KVMETA_TABLE_SCANKEY_TYPE,
                                               scanKey);
+
+    INSTR_TIME_SET_CURRENT(t2);
+
     HeapTuple heapTuple = systable_getnext(scanDesc);
     if (!HeapTupleIsValid(heapTuple)) {
         systable_endscan(scanDesc);
@@ -2608,10 +2672,23 @@ void FalconKvmetaDelHandle(KvMetaProcessInfo info)
         FALCON_ELOG_ERROR(ARGUMENT_ERROR, "FalconKvmetaDelHandle has received invalid input.");
     }
 
+    INSTR_TIME_SET_CURRENT(t3);
+
     CatalogTupleDelete(kvmetaRel, &heapTuple->t_self);
+
+    INSTR_TIME_SET_CURRENT(t4);
 
     systable_endscan(scanDesc);
     table_close(kvmetaRel, RowExclusiveLock);
+
+    double shard_lookup = INSTR_TIME_GET_MILLISEC(t1) - INSTR_TIME_GET_MILLISEC(start_time);
+    double scan_begin = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(t1);
+    double tuple_fetch = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(t2);
+    double tuple_delete = INSTR_TIME_GET_MILLISEC(t4) - INSTR_TIME_GET_MILLISEC(t3);
+    double total = INSTR_TIME_GET_MILLISEC(t4) - INSTR_TIME_GET_MILLISEC(start_time);
+
+    elog(LOG, "[handle_perf] KV_DEL: shard_lookup=%.3f, scan_begin=%.3f, tuple_fetch=%.3f, tuple_delete=%.3f, total=%.3f ms",
+         shard_lookup, scan_begin, tuple_fetch, tuple_delete, total);
 }
 
 void FalconFetchSliceIdHandle(SliceIdProcessInfo info)
