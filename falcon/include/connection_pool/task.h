@@ -30,6 +30,12 @@ class AsyncMetaServiceJob {
     std::chrono::steady_clock::time_point pg_result_time;   // 收到SQL结果时间
     std::chrono::steady_clock::time_point process_done_time; // 结果处理完成
 
+    // queue_wait 分解时间点
+    std::chrono::steady_clock::time_point enqueue_time;        // 进入pool队列
+    std::chrono::steady_clock::time_point pool_dequeue_time;   // 从pool队列取出
+    std::chrono::steady_clock::time_point conn_wait_start;     // 开始等待连接
+    std::chrono::steady_clock::time_point conn_assigned_time;  // 分配到连接
+
     AsyncMetaServiceJob(brpc::Controller *cntl,
                         const MetaRequest *request,
                         Empty *response,

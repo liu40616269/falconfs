@@ -33,8 +33,20 @@ static void LogJobPerf(falcon::meta_proto::AsyncMetaServiceJob* job, int service
     auto total = std::chrono::duration_cast<std::chrono::microseconds>(
         job->process_done_time - job->create_time).count();
 
-    fprintf(stderr, "[perf] type=%d, queue_wait=%ld, shmem_copy=%ld, pg_exec=%ld, result_proc=%ld, total=%ld us\n",
-            serviceType, queue_wait, shmem_copy, pg_exec, result_proc, total);
+    // queue_wait 分解
+    auto enqueue_delay = std::chrono::duration_cast<std::chrono::microseconds>(
+        job->enqueue_time - job->create_time).count();
+    auto in_queue = std::chrono::duration_cast<std::chrono::microseconds>(
+        job->pool_dequeue_time - job->enqueue_time).count();
+    auto conn_wait = std::chrono::duration_cast<std::chrono::microseconds>(
+        job->conn_assigned_time - job->conn_wait_start).count();
+    auto worker_wait = std::chrono::duration_cast<std::chrono::microseconds>(
+        job->dequeue_time - job->conn_assigned_time).count();
+
+    fprintf(stderr, "[perf] type=%d, queue_wait=%ld (enqueue=%ld, in_queue=%ld, conn_wait=%ld, worker_wait=%ld), "
+            "shmem_copy=%ld, pg_exec=%ld, result_proc=%ld, total=%ld us\n",
+            serviceType, queue_wait, enqueue_delay, in_queue, conn_wait, worker_wait,
+            shmem_copy, pg_exec, result_proc, total);
     fflush(stderr);
 }
 

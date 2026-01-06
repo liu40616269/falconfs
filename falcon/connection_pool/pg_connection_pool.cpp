@@ -67,7 +67,27 @@ int PGConnectionPool::BatchDequeueExec(int toDequeue, int queueIndex)
     if (count == 0) {
         return 0;
     }
+
+    // 记录从队列取出的时间
+    auto pool_dequeue = std::chrono::steady_clock::now();
+    for (auto& job : taskVecPtr->jobList) {
+        job->pool_dequeue_time = pool_dequeue;
+    }
+
+    // 记录开始等待连接的时间
+    auto conn_wait_start = std::chrono::steady_clock::now();
+    for (auto& job : taskVecPtr->jobList) {
+        job->conn_wait_start = conn_wait_start;
+    }
+
     PGConnection *conn = GetPGConnection(); // get idle connection, may block
+
+    // 记录分配到连接的时间
+    auto conn_assigned = std::chrono::steady_clock::now();
+    for (auto& job : taskVecPtr->jobList) {
+        job->conn_assigned_time = conn_assigned;
+    }
+
     conn->Exec(taskVecPtr);
     return count;
 }
@@ -76,14 +96,28 @@ int PGConnectionPool::SingleDequeueExec(int toDequeue, std::vector<falcon::meta_
 {
     tasksContainer.clear();
     size_t count = supportBatchTaskList[TaskSupportBatchType::NOT_SUPPORT].task->jobList.try_dequeue_bulk(
-        std::back_inserter(tasksContainer), 
+        std::back_inserter(tasksContainer),
         toDequeue
     );
     if (count == 0) {
         return 0;
     }
+
+    // 记录从队列取出的时间
+    auto pool_dequeue = std::chrono::steady_clock::now();
     for (auto &e : tasksContainer) {
+        e->pool_dequeue_time = pool_dequeue;
+    }
+
+    for (auto &e : tasksContainer) {
+        // 记录开始等待连接
+        e->conn_wait_start = std::chrono::steady_clock::now();
+
         PGConnection *conn = GetPGConnection();
+
+        // 记录分配到连接
+        e->conn_assigned_time = std::chrono::steady_clock::now();
+
         auto taskVecPtr = std::make_shared<WorkerTask>();
         taskVecPtr->jobList.emplace_back(e);
         conn->Exec(taskVecPtr);
@@ -157,6 +191,9 @@ void PGConnectionPool::DispatchAsyncMetaServiceJob(falcon::meta_proto::AsyncMeta
                 break;
             }
     }
+
+    // 记录入队时间
+    job->enqueue_time = std::chrono::steady_clock::now();
 
     if (allowBatchWithOthers) {
         while (!supportBatchTaskList[taskSupportBatchType].task->jobList.enqueue(job)) {
