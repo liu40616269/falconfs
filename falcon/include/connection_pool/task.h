@@ -7,9 +7,9 @@
 
 #include <brpc/server.h>
 #include <vector>
-#include <chrono>
 #include "falcon_meta_rpc.pb.h"
 #include "concurrentqueue/concurrentqueue.h"
+#include "perf_counter/perf_stat.h"
 
 namespace falcon::meta_proto
 {
@@ -22,19 +22,9 @@ class AsyncMetaServiceJob {
     google::protobuf::Closure *done;
 
   public:
-    // 性能统计时间点
-    std::chrono::steady_clock::time_point create_time;      // 创建时间
-    std::chrono::steady_clock::time_point dequeue_time;     // 出队时间（开始处理）
-    std::chrono::steady_clock::time_point shmem_done_time;  // 共享内存复制完成
-    std::chrono::steady_clock::time_point pg_send_time;     // 发送SQL时间
-    std::chrono::steady_clock::time_point pg_result_time;   // 收到SQL结果时间
-    std::chrono::steady_clock::time_point process_done_time; // 结果处理完成
-
-    // queue_wait 分解时间点
-    std::chrono::steady_clock::time_point enqueue_time;        // 进入pool队列
-    std::chrono::steady_clock::time_point pool_dequeue_time;   // 从pool队列取出
-    std::chrono::steady_clock::time_point conn_wait_start;     // 开始等待连接
-    std::chrono::steady_clock::time_point conn_assigned_time;  // 分配到连接
+    LatencyTimer queueWaitTimer;
+    uint64_t enqueueTimeNs;      // Time when job was enqueued (for inQueueLatency)
+    uint64_t dequeueTimeNs;      // Time when job was dequeued (for workerWaitLatency)
 
     AsyncMetaServiceJob(brpc::Controller *cntl,
                         const MetaRequest *request,
@@ -44,8 +34,10 @@ class AsyncMetaServiceJob {
           request(request),
           response(response),
           done(done),
-          create_time(std::chrono::steady_clock::now())
+          enqueueTimeNs(0),
+          dequeueTimeNs(0)
     {
+        queueWaitTimer.Start();
     }
     brpc::Controller *GetCntl() { return cntl; }
     const MetaRequest *GetRequest() { return request; }

@@ -6,7 +6,6 @@
 
 #include "fmgr.h"
 #include "utils/palloc.h"
-#include "portability/instr_time.h"
 
 #include <unistd.h>
 
@@ -19,8 +18,6 @@ PG_FUNCTION_INFO_V1(falcon_meta_call_by_serialized_data);
 
 static SerializedData FileMetaProcess(FalconSupportMetaService metaService, int count, char *paramBuffer)
 {
-    instr_time start_time, t1, t2, t3;
-    INSTR_TIME_SET_CURRENT(start_time);
 
     if (count != 1 && !(metaService == MKDIR || metaService == MKDIR_SUB_MKDIR || metaService == MKDIR_SUB_CREATE ||
                         metaService == CREATE || metaService == STAT || metaService == OPEN || metaService == CLOSE ||
@@ -39,8 +36,6 @@ static SerializedData FileMetaProcess(FalconSupportMetaService metaService, int 
         FALCON_ELOG_ERROR(ARGUMENT_ERROR, "serialized param is corrupt.");
     for (int i = 0; i < count; i++)
         infoArray[i] = infoDataArray + i;
-
-    INSTR_TIME_SET_CURRENT(t1);
 
     switch (metaService) {
     case MKDIR:
@@ -104,31 +99,16 @@ static SerializedData FileMetaProcess(FalconSupportMetaService metaService, int 
         FALCON_ELOG_ERROR_EXTENDED(ARGUMENT_ERROR, "unexpected metaService: %d", metaService);
     }
 
-    INSTR_TIME_SET_CURRENT(t2);
-
     SerializedData response;
     SerializedDataInit(&response, NULL, 0, 0, &PgMemoryManager);
     if (!SerializedDataMetaResponseEncodeWithPerProcessFlatBufferBuilder(metaService, count, infoDataArray, &response))
         FALCON_ELOG_ERROR(ARGUMENT_ERROR, "failed when serializing response.");
-
-    INSTR_TIME_SET_CURRENT(t3);
-
-    double deserialize = INSTR_TIME_GET_MILLISEC(t1) - INSTR_TIME_GET_MILLISEC(start_time);
-    double handle = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(t1);
-    double serialize = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(t2);
-    double total = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(start_time);
-
-    elog(LOG, "[process_perf] FileMetaProcess (opcode=%d): deserialize=%.3f, handle=%.3f, serialize=%.3f, total=%.3f ms",
-         metaService, deserialize, handle, serialize, total);
 
     return response;
 }
 
 static SerializedData KVMetaProcess(FalconSupportMetaService metaService, char *paramBuffer)
 {
-    instr_time start_time, t1, t2, t3;
-    INSTR_TIME_SET_CURRENT(start_time);
-
     SerializedData param;
 
     if (!SerializedDataInit(&param, paramBuffer, SD_SIZE_T_MAX, SD_SIZE_T_MAX, NULL))
@@ -137,8 +117,6 @@ static SerializedData KVMetaProcess(FalconSupportMetaService metaService, char *
     KvMetaProcessInfoData infoData = {0};
     if (!SerializedKvMetaParamDecode(metaService, &param, &infoData))
         FALCON_ELOG_ERROR(ARGUMENT_ERROR, "serialized param is corrupt.");
-
-    INSTR_TIME_SET_CURRENT(t1);
 
     switch (metaService) {
         case KV_PUT:
@@ -154,31 +132,16 @@ static SerializedData KVMetaProcess(FalconSupportMetaService metaService, char *
             FALCON_ELOG_ERROR_EXTENDED(ARGUMENT_ERROR, "unexpected metaService: %d", metaService);
     }
 
-    INSTR_TIME_SET_CURRENT(t2);
-
     SerializedData response;
     SerializedDataInit(&response, NULL, 0, 0, &PgMemoryManager);
     if (!SerializedKvMetaResponseEncodeWithPerProcessFlatBufferBuilder(metaService, &infoData, &response))
         FALCON_ELOG_ERROR(ARGUMENT_ERROR, "failed when serializing response.");
-
-    INSTR_TIME_SET_CURRENT(t3);
-
-    double deserialize = INSTR_TIME_GET_MILLISEC(t1) - INSTR_TIME_GET_MILLISEC(start_time);
-    double handle = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(t1);
-    double serialize = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(t2);
-    double total = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(start_time);
-
-    elog(LOG, "[process_perf] KVMetaProcess (opcode=%d): deserialize=%.3f, handle=%.3f, serialize=%.3f, total=%.3f ms",
-         metaService, deserialize, handle, serialize, total);
 
     return response;
 }
 
 static SerializedData SliceMetaProcess(FalconSupportMetaService metaService, int count, char *paramBuffer)
 {
-    instr_time start_time, t1, t2, t3;
-    INSTR_TIME_SET_CURRENT(start_time);
-
     SerializedData param;
 
     if (!SerializedDataInit(&param, paramBuffer, SD_SIZE_T_MAX, SD_SIZE_T_MAX, NULL))
@@ -194,8 +157,6 @@ static SerializedData SliceMetaProcess(FalconSupportMetaService metaService, int
         infoArray[i] = infoDataArray + i;
     }
 
-    INSTR_TIME_SET_CURRENT(t1);
-
     switch (metaService) {
         case SLICE_PUT:
             FalconSlicePutHandle(infoArray, count);
@@ -210,31 +171,16 @@ static SerializedData SliceMetaProcess(FalconSupportMetaService metaService, int
             FALCON_ELOG_ERROR_EXTENDED(ARGUMENT_ERROR, "unexpected metaService: %d", metaService);
     }
 
-    INSTR_TIME_SET_CURRENT(t2);
-
     SerializedData response;
     SerializedDataInit(&response, NULL, 0, 0, &PgMemoryManager);
     if (!SerializedSliceResponseEncodeWithPerProcessFlatBufferBuilder(metaService, count, infoDataArray, &response))
         FALCON_ELOG_ERROR(ARGUMENT_ERROR, "failed when serializing response.");
-
-    INSTR_TIME_SET_CURRENT(t3);
-
-    double deserialize = INSTR_TIME_GET_MILLISEC(t1) - INSTR_TIME_GET_MILLISEC(start_time);
-    double handle = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(t1);
-    double serialize = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(t2);
-    double total = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(start_time);
-
-    elog(LOG, "[process_perf] SliceMetaProcess (opcode=%d): deserialize=%.3f, handle=%.3f, serialize=%.3f, total=%.3f ms",
-         metaService, deserialize, handle, serialize, total);
 
     return response;
 }
 
 static SerializedData SliceIdProcess(char *paramBuffer)
 {
-    instr_time start_time, t1, t2, t3;
-    INSTR_TIME_SET_CURRENT(start_time);
-
     SerializedData param;
 
     if (!SerializedDataInit(&param, paramBuffer, SD_SIZE_T_MAX, SD_SIZE_T_MAX, NULL))
@@ -244,26 +190,12 @@ static SerializedData SliceIdProcess(char *paramBuffer)
     if (!SerializedSliceIdParamDecode(&param, &infoData))
         FALCON_ELOG_ERROR(ARGUMENT_ERROR, "serialized param is corrupt.");
 
-    INSTR_TIME_SET_CURRENT(t1);
-
     FalconFetchSliceIdHandle(&infoData);
-
-    INSTR_TIME_SET_CURRENT(t2);
 
     SerializedData response;
     SerializedDataInit(&response, NULL, 0, 0, &PgMemoryManager);
     if (!SerializedSliceIdResponseEncodeWithPerProcessFlatBufferBuilder(&infoData, &response))
         FALCON_ELOG_ERROR(ARGUMENT_ERROR, "failed when serializing response.");
-
-    INSTR_TIME_SET_CURRENT(t3);
-
-    double deserialize = INSTR_TIME_GET_MILLISEC(t1) - INSTR_TIME_GET_MILLISEC(start_time);
-    double handle = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(t1);
-    double serialize = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(t2);
-    double total = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(start_time);
-
-    elog(LOG, "[process_perf] SliceIdProcess (opcode=FETCH_SLICE_ID): deserialize=%.3f, handle=%.3f, serialize=%.3f, total=%.3f ms",
-         deserialize, handle, serialize, total);
 
     return response;
 }

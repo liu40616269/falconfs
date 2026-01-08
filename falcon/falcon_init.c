@@ -28,6 +28,7 @@
 #include "utils/shmem_control.h"
 #include "utils/falcon_plugin_guc.h"
 #include "plugin/falcon_plugin_loader.h"
+#include "perf_counter/falcon_perf_latency_shmem.h"
 
 PG_MODULE_MAGIC;
 
@@ -57,6 +58,11 @@ void _PG_init(void)
 
     FalconStart2PCCleanupWorker();
     FalconStartConnectionPoolWorker();
+
+    /* Register performance monitoring output worker */
+    if (process_shared_preload_libraries_in_progress) {
+        RegisterFalconPerfOutputWorker();
+    }
 
     if (falcon_plugin_directory) {
         FalconPluginSystemInit(falcon_plugin_directory);
@@ -161,6 +167,7 @@ static void FalconShmemRequest(void)
     RequestAddinShmemSpace(DirPathShmemsize());
     RequestAddinShmemSpace(FalconConnectionPoolShmemsize());
     RequestAddinShmemSpace(FalconPluginShmemSize());
+    RequestAddinShmemSpace(FalconPerfLatencyShmemSize());
 }
 static void FalconShmemInit(void)
 {
@@ -177,9 +184,9 @@ static void FalconShmemInit(void)
     DirPathShmemInit();
     FalconConnectionPoolShmemInit();
     FalconPluginShmemInit();
+    FalconPerfLatencyShmemInit();
 
     LWLockRelease(AddinShmemInitLock);
-
 
     FalconPluginInitBackgroundPlugins();
 }

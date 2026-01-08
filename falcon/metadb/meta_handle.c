@@ -26,6 +26,7 @@
 #include "metadb/shard_table.h"
 #include "utils/path_parse.h"
 #include "utils/utils_standalone.h"
+#include "perf_counter/perf_macros.h"
 
 MemoryManager PgMemoryManager = {.alloc = palloc, .free = pfree, .realloc = repalloc};
 
@@ -120,7 +121,10 @@ void FalconMkdirHandle(MetaProcessInfo *infoArray, int count)
 
     int32_t *validInputIndexArray = palloc(sizeof(int32_t) * count);
     int validInputIndexArraySize = 0;
+    FalconPerfLatencyShmem *perf = g_FalconPerfLatencyShmem;
+    PERF_LATENCY_BEGIN(table_open, perf ? &perf->tableOpenLatency : NULL);
     Relation directoryRel = table_open(DirectoryRelationId(), RowExclusiveLock);
+    PERF_LATENCY_END(table_open);
     CatalogIndexState indexState = CatalogOpenIndexes(directoryRel);
     for (int i = 0; i < count; ++i) {
         MetaProcessInfo info = infoArray[i];
@@ -588,19 +592,16 @@ void FalconCreateHandle(MetaProcessInfo *infoArray, int count, bool updateExiste
 
 void FalconStatHandle(MetaProcessInfo *infoArray, int count)
 {
-    instr_time start_time, t1, t2;
-    INSTR_TIME_SET_CURRENT(start_time);
+    FalconPerfLatencyShmem *perf = g_FalconPerfLatencyShmem;
 
     for (int i = 0; i < count; ++i) {
         MetaProcessInfo info = infoArray[i];
-        //
         info->errorCode = SUCCESS;
         info->errorMsg = NULL;
 
         elog(LOG, "[DEBUG] FalconStatHandle: path=%s, path_len=%zu", info->path, strlen(info->path));
 
         int32_t property;
-        //
         FalconErrorCode errorCode = VerifyPathValidity(info->path, 0, &property);
         CHECK_ERROR_CODE_WITH_CONTINUE(errorCode);
     }
@@ -623,6 +624,7 @@ void FalconStatHandle(MetaProcessInfo *infoArray, int count)
         if (info->errorCode != SUCCESS)
             continue;
 
+        /* PathParseTreeInsert reports pathParseLatency internally */
         FalconErrorCode errorCode =
             PathParseTreeInsert(NULL, directoryRel, info->path, 0, &(info->parentId), &(info->name), NULL);
         CHECK_ERROR_CODE_WITH_CONTINUE(errorCode);
@@ -644,8 +646,6 @@ void FalconStatHandle(MetaProcessInfo *infoArray, int count)
     }
     table_close(directoryRel, AccessShareLock);
 
-    INSTR_TIME_SET_CURRENT(t1);
-
     HASH_SEQ_STATUS status;
     hash_seq_init(&status, batchMetaProcessInfoListPerShard);
     while ((entry = hash_seq_search(&status)) != NULL) {
@@ -659,6 +659,9 @@ void FalconStatHandle(MetaProcessInfo *infoArray, int count)
 
             elog(LOG, "[DEBUG] FalconStatHandle query: shardId=%d, parentId_partId=%lu, name=%s, name_len=%zu",
                  entry->shardId, info->parentId_partId, info->name, strlen(info->name));
+
+            /* Time the index scan for this item */
+            PERF_LATENCY_BEGIN(scan, perf ? &perf->indexScanLatency : NULL);
 
             ScanKeyData scanKey[2];
             int scanKeyCount = 2;
@@ -704,19 +707,12 @@ void FalconStatHandle(MetaProcessInfo *infoArray, int count)
                 }
             }
             systable_endscan(scanDescriptor);
+
+            PERF_LATENCY_END(scan);
         }
 
         table_close(workerInodeRel, AccessShareLock);
     }
-
-    INSTR_TIME_SET_CURRENT(t2);
-
-    double path_parse = INSTR_TIME_GET_MILLISEC(t1) - INSTR_TIME_GET_MILLISEC(start_time);
-    double inode_scan = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(t1);
-    double total = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(start_time);
-
-    elog(LOG, "[handle_perf] STAT: count=%d, path_parse=%.3f, inode_scan=%.3f, total=%.3f ms",
-         count, path_parse, inode_scan, total);
 }
 
 void FalconOpenHandle(MetaProcessInfo *infoArray, int count)
@@ -741,7 +737,10 @@ void FalconOpenHandle(MetaProcessInfo *infoArray, int count)
     HTAB *batchMetaProcessInfoListPerShard =
         hash_create("Batch Meta Process Info List Per Shard Hash Table", GetShardTableSize(), &info, hashFlags);
     ShardHashInfo *entry;
+    FalconPerfLatencyShmem *perf = g_FalconPerfLatencyShmem;
+    PERF_LATENCY_BEGIN(table_open, perf ? &perf->tableOpenLatency : NULL);
     Relation directoryRel = table_open(DirectoryRelationId(), AccessShareLock);
+    PERF_LATENCY_END(table_open);
     for (int i = 0; i < count; ++i) {
         MetaProcessInfo info = infoArray[i];
         if (info->errorCode != SUCCESS)
@@ -949,7 +948,10 @@ void FalconUnlinkHandle(MetaProcessInfo *infoArray, int count)
     HTAB *batchMetaProcessInfoListPerShard =
         hash_create("Batch Meta Process Info List Per Shard Hash Table", GetShardTableSize(), &info, hashFlags);
     ShardHashInfo *entry;
+    FalconPerfLatencyShmem *perf = g_FalconPerfLatencyShmem;
+    PERF_LATENCY_BEGIN(table_open, perf ? &perf->tableOpenLatency : NULL);
     Relation directoryRel = table_open(DirectoryRelationId(), AccessShareLock);
+    PERF_LATENCY_END(table_open);
     for (int i = 0; i < count; ++i) {
         MetaProcessInfo info = infoArray[i];
         if (info->errorCode != SUCCESS)
@@ -1025,6 +1027,8 @@ void FalconUnlinkHandle(MetaProcessInfo *infoArray, int count)
 
 void FalconReadDirHandle(MetaProcessInfo info)
 {
+    FalconPerfLatencyShmem *perf = g_FalconPerfLatencyShmem;
+
     const char *path = info->path;
     int32_t maxReadCount = info->readDirMaxReadCount;
     if (maxReadCount == -1)
@@ -1037,7 +1041,9 @@ void FalconReadDirHandle(MetaProcessInfo info)
 
     uint64_t directoryId;
     uint64_t parentId;
+    PERF_LATENCY_BEGIN(table_open, perf ? &perf->tableOpenLatency : NULL);
     Relation directoryRel = table_open(DirectoryRelationId(), AccessShareLock);
+    PERF_LATENCY_END(table_open);
     FalconErrorCode errorCode = PathParseTreeInsert(NULL,
                                                     directoryRel,
                                                     path,
@@ -1112,6 +1118,9 @@ void FalconReadDirHandle(MetaProcessInfo info)
             FALCON_ELOG_ERROR(PROGRAM_ERROR, "wrong state in FalconReadDirHandle.");
         }
 
+        /* Time the index scan for this shard */
+        PERF_LATENCY_BEGIN(readdir_scan, perf ? &perf->indexScanLatency : NULL);
+
         Relation workerInodeRel = table_open(GetRelationOidByName_FALCON(inodeShardName->data), AccessShareLock);
         SysScanDesc scanDescriptor = systable_beginscan(workerInodeRel,
                                                         GetRelationOidByName_FALCON(inodeIndexShardName->data),
@@ -1145,6 +1154,8 @@ void FalconReadDirHandle(MetaProcessInfo info)
 
         systable_endscan(scanDescriptor);
         table_close(workerInodeRel, AccessShareLock);
+
+        PERF_LATENCY_END(readdir_scan);
 
         if (readCount >= maxReadCount)
             break;
@@ -1668,7 +1679,10 @@ void FalconRenameSubRenameLocallyHandle(MetaProcessInfo info)
         FALCON_ELOG_ERROR(FILE_NOT_EXISTS, "unexpected.");
 
     heap_deform_tuple(heapTuple, tupleDesc, fileInfo, fileInfoNulls);
+    FalconPerfLatencyShmem *perf = g_FalconPerfLatencyShmem;
+    PERF_LATENCY_BEGIN(table_delete, perf ? &perf->tableDeleteLatency : NULL);
     CatalogTupleDelete(srcInodeRel, &heapTuple->t_self);
+    PERF_LATENCY_END(table_delete);
     CommandCounterIncrement();
 
     systable_endscan(scanDescriptor);
@@ -2042,6 +2056,9 @@ static bool SearchAndUpdateInodeTableInfo(const char *workerInodeRelationName,
                                           int32_t *newPrimaryNodeId,
                                           int32_t *backupNodeId)
 {
+    FalconPerfLatencyShmem *perf = g_FalconPerfLatencyShmem;
+    PERF_SCOPED_TIMER(search_update_timer, perf ? (doUpdate ? &perf->tableUpdateLatency : &perf->indexScanLatency) : NULL);
+
     ScanKeyData scanKey[2];
     int scanKeyCount = 2;
     SysScanDesc scanDescriptor = NULL;
@@ -2109,7 +2126,10 @@ static bool SearchAndUpdateInodeTableInfo(const char *workerInodeRelationName,
         if (doUpdate) {
             if ((*nlink) + nlinkChangeNum == 0) // refcount changes to 0, need remove this inode row
             {
+                FalconPerfLatencyShmem *perf_del = g_FalconPerfLatencyShmem;
+                PERF_LATENCY_BEGIN(table_delete, perf_del ? &perf_del->tableDeleteLatency : NULL);
                 CatalogTupleDelete(workerInodeRel, &heapTuple->t_self);
+                PERF_LATENCY_END(table_delete);
                 CommandCounterIncrement();
             } else {
                 updateDatumArray[Anum_pg_dfs_file_st_nlink - 1] = UInt64GetDatum((*nlink) + nlinkChangeNum);
@@ -2209,6 +2229,9 @@ static bool InsertIntoInodeTable(Relation relation,
                                  int32_t primaryNodeId,
                                  int32_t backupNodeId)
 {
+    FalconPerfLatencyShmem *perf = g_FalconPerfLatencyShmem;
+    PERF_SCOPED_TIMER(insert_timer, perf ? &perf->tableInsertLatency : NULL);
+
     Datum values[Natts_pg_dfs_inode_table];
     bool isNulls[Natts_pg_dfs_inode_table];
     HeapTuple heapTuple;
@@ -2249,7 +2272,11 @@ static bool InsertIntoInodeTable(Relation relation,
 
 void FalconSlicePutHandle(SliceProcessInfo *infoArray, int count)
 {
+    FalconPerfLatencyShmem *perf = g_FalconPerfLatencyShmem;
+
     for (int i = 0; i < count; ++i) {
+        PERF_SCOPED_TIMER(slice_put_timer, perf ? &perf->slicePutLatency : NULL);
+
         SliceProcessInfo info = infoArray[i];
         info->errorCode = SUCCESS;
 
@@ -2290,9 +2317,12 @@ void FalconSlicePutHandle(SliceProcessInfo *infoArray, int count)
 
 void FalconSliceGetHandle(SliceProcessInfo *infoArray, int count)
 {
+    FalconPerfLatencyShmem *perf = g_FalconPerfLatencyShmem;
     SetUpScanCaches();
 
     for (int i = 0; i < count; ++i) {
+        PERF_SCOPED_TIMER(slice_get_timer, perf ? &perf->sliceGetLatency : NULL);
+
         SliceProcessInfo info = infoArray[i];
 
         int shardId, workerId;
@@ -2403,7 +2433,10 @@ void FalconSliceDelHandle(SliceProcessInfo *infoArray, int count)
                                                 scanKey);
         HeapTuple heapTuple;
         while (HeapTupleIsValid(heapTuple = systable_getnext(scanDesc))) {
+            FalconPerfLatencyShmem *perf_del = g_FalconPerfLatencyShmem;
+            PERF_LATENCY_BEGIN(table_delete, perf_del ? &perf_del->tableDeleteLatency : NULL);
             CatalogTupleDelete(sliceRel, &heapTuple->t_self);
+            PERF_LATENCY_END(table_delete);
         }
 
         systable_endscan(scanDesc);
@@ -2413,8 +2446,8 @@ void FalconSliceDelHandle(SliceProcessInfo *infoArray, int count)
 
 void FalconKvmetaPutHandle(KvMetaProcessInfo info)
 {
-    instr_time start_time, t1, t2, t3, t4;
-    INSTR_TIME_SET_CURRENT(start_time);
+    FalconPerfLatencyShmem *perf = g_FalconPerfLatencyShmem;
+    PERF_SCOPED_TIMER(kv_put_timer, perf ? &perf->kvPutLatency : NULL);
 
     /* Save current memory context for error handling */
     MemoryContext oldcontext = CurrentMemoryContext;
@@ -2425,8 +2458,6 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
     if (workerId != GetLocalServerId())
         CHECK_ERROR_CODE_WITH_RETURN(WRONG_WORKER);
 
-    INSTR_TIME_SET_CURRENT(t1);
-
     StringInfo kvmetaShardName = GetKvmetaShardName(shardId);
     Relation kvmetaRel = NULL;
     TupleDesc tupleDesc = NULL;
@@ -2434,8 +2465,6 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
 
     kvmetaRel = table_open(GetRelationOidByName_FALCON(kvmetaShardName->data), RowExclusiveLock);
     CatalogIndexState indexState = CatalogOpenIndexes(kvmetaRel);
-
-    INSTR_TIME_SET_CURRENT(t2);
 
     PG_TRY();
     {
@@ -2475,25 +2504,12 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
         pfree(dkeys);
         dkeys = NULL;
 
-        INSTR_TIME_SET_CURRENT(t3);
-
         HeapTuple heapTuple = heap_form_tuple(tupleDesc, values, isNulls);
         CatalogTupleInsertWithInfo(kvmetaRel, heapTuple, indexState);
         heap_freetuple(heapTuple);
 
-        INSTR_TIME_SET_CURRENT(t4);
-
         CatalogCloseIndexes(indexState);
         table_close(kvmetaRel, RowExclusiveLock);
-
-        double shard_lookup = INSTR_TIME_GET_MILLISEC(t1) - INSTR_TIME_GET_MILLISEC(start_time);
-        double table_open = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(t1);
-        double data_prepare = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(t2);
-        double tuple_insert = INSTR_TIME_GET_MILLISEC(t4) - INSTR_TIME_GET_MILLISEC(t3);
-        double total = INSTR_TIME_GET_MILLISEC(t4) - INSTR_TIME_GET_MILLISEC(start_time);
-
-        elog(LOG, "[handle_perf] KV_PUT: shard_lookup=%.3f, table_open=%.3f, data_prepare=%.3f, tuple_insert=%.3f, total=%.3f ms",
-             shard_lookup, table_open, data_prepare, tuple_insert, total);
     }
     PG_CATCH();
     {
@@ -2519,16 +2535,14 @@ void FalconKvmetaPutHandle(KvMetaProcessInfo info)
 
 void FalconKvmetaGetHandle(KvMetaProcessInfo info)
 {
-    instr_time start_time, t1, t2, t3, t4;
-    INSTR_TIME_SET_CURRENT(start_time);
+    FalconPerfLatencyShmem *perf = g_FalconPerfLatencyShmem;
+    PERF_SCOPED_TIMER(kv_get_timer, perf ? &perf->kvGetLatency : NULL);
 
     int shardId, workerId;
     uint16_t partId = HashPartId(info->userkey);
     SearchShardInfoByShardValue(partId, &shardId, &workerId);
     if (workerId != GetLocalServerId())
         CHECK_ERROR_CODE_WITH_RETURN(WRONG_WORKER);
-
-    INSTR_TIME_SET_CURRENT(t1);
 
     SetUpScanCaches();
 
@@ -2548,16 +2562,12 @@ void FalconKvmetaGetHandle(KvMetaProcessInfo info)
                                               scanKey);
     TupleDesc tupleDesc = RelationGetDescr(kvmetaRel);
 
-    INSTR_TIME_SET_CURRENT(t2);
-
     HeapTuple heapTuple = systable_getnext(scanDesc);
     if (!HeapTupleIsValid(heapTuple)) {
         systable_endscan(scanDesc);
         table_close(kvmetaRel, AccessShareLock);
         FALCON_ELOG_ERROR(ARGUMENT_ERROR, "FalconKvmetaGetHandle has received invalid input.");
     }
-
-    INSTR_TIME_SET_CURRENT(t3);
 
     bool isNull;
     ArrayType *arr = NULL;
@@ -2618,33 +2628,20 @@ void FalconKvmetaGetHandle(KvMetaProcessInfo info)
         array = NULL;
     }
 
-    INSTR_TIME_SET_CURRENT(t4);
-
     systable_endscan(scanDesc);
     table_close(kvmetaRel, AccessShareLock);
-
-    double shard_lookup = INSTR_TIME_GET_MILLISEC(t1) - INSTR_TIME_GET_MILLISEC(start_time);
-    double scan_begin = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(t1);
-    double tuple_fetch = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(t2);
-    double array_parse = INSTR_TIME_GET_MILLISEC(t4) - INSTR_TIME_GET_MILLISEC(t3);
-    double total = INSTR_TIME_GET_MILLISEC(t4) - INSTR_TIME_GET_MILLISEC(start_time);
-
-    elog(LOG, "[handle_perf] KV_GET: shard_lookup=%.3f, scan_begin=%.3f, tuple_fetch=%.3f, array_parse=%.3f, total=%.3f ms",
-         shard_lookup, scan_begin, tuple_fetch, array_parse, total);
 }
 
 void FalconKvmetaDelHandle(KvMetaProcessInfo info)
 {
-    instr_time start_time, t1, t2, t3, t4;
-    INSTR_TIME_SET_CURRENT(start_time);
+    FalconPerfLatencyShmem *perf = g_FalconPerfLatencyShmem;
+    PERF_SCOPED_TIMER(kv_del_timer, perf ? &perf->kvDelLatency : NULL);
 
     int shardId, workerId;
     uint16_t partId = HashPartId(info->userkey);
     SearchShardInfoByShardValue(partId, &shardId, &workerId);
     if (workerId != GetLocalServerId())
         CHECK_ERROR_CODE_WITH_RETURN(WRONG_WORKER);
-
-    INSTR_TIME_SET_CURRENT(t1);
 
     SetUpScanCaches();
 
@@ -2663,8 +2660,6 @@ void FalconKvmetaDelHandle(KvMetaProcessInfo info)
                                               LAST_FALCON_KVMETA_TABLE_SCANKEY_TYPE,
                                               scanKey);
 
-    INSTR_TIME_SET_CURRENT(t2);
-
     HeapTuple heapTuple = systable_getnext(scanDesc);
     if (!HeapTupleIsValid(heapTuple)) {
         systable_endscan(scanDesc);
@@ -2672,23 +2667,12 @@ void FalconKvmetaDelHandle(KvMetaProcessInfo info)
         FALCON_ELOG_ERROR(ARGUMENT_ERROR, "FalconKvmetaDelHandle has received invalid input.");
     }
 
-    INSTR_TIME_SET_CURRENT(t3);
-
+    PERF_LATENCY_BEGIN(table_delete, perf ? &perf->tableDeleteLatency : NULL);
     CatalogTupleDelete(kvmetaRel, &heapTuple->t_self);
-
-    INSTR_TIME_SET_CURRENT(t4);
+    PERF_LATENCY_END(table_delete);
 
     systable_endscan(scanDesc);
     table_close(kvmetaRel, RowExclusiveLock);
-
-    double shard_lookup = INSTR_TIME_GET_MILLISEC(t1) - INSTR_TIME_GET_MILLISEC(start_time);
-    double scan_begin = INSTR_TIME_GET_MILLISEC(t2) - INSTR_TIME_GET_MILLISEC(t1);
-    double tuple_fetch = INSTR_TIME_GET_MILLISEC(t3) - INSTR_TIME_GET_MILLISEC(t2);
-    double tuple_delete = INSTR_TIME_GET_MILLISEC(t4) - INSTR_TIME_GET_MILLISEC(t3);
-    double total = INSTR_TIME_GET_MILLISEC(t4) - INSTR_TIME_GET_MILLISEC(start_time);
-
-    elog(LOG, "[handle_perf] KV_DEL: shard_lookup=%.3f, scan_begin=%.3f, tuple_fetch=%.3f, tuple_delete=%.3f, total=%.3f ms",
-         shard_lookup, scan_begin, tuple_fetch, tuple_delete, total);
 }
 
 void FalconFetchSliceIdHandle(SliceIdProcessInfo info)

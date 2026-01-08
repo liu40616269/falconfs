@@ -6,48 +6,15 @@
 
 #include <iostream>
 #include <sstream>
-#include <chrono>
 
 #include "falcon_meta_param_generated.h"
 #include "falcon_meta_response_generated.h"
+#include "perf_counter/perf_stat.h"
 
 extern "C" {
 #include "connection_pool/connection_pool.h"
 #include "utils/error_code.h"
 #include "utils/utils_standalone.h"
-}
-
-// 打印单个 job 的性能统计（线程安全版本，使用 fprintf）
-static void LogJobPerf(falcon::meta_proto::AsyncMetaServiceJob* job, int serviceType) {
-    auto now = std::chrono::steady_clock::now();
-    job->process_done_time = now;
-
-    auto queue_wait = std::chrono::duration_cast<std::chrono::microseconds>(
-        job->dequeue_time - job->create_time).count();
-    auto shmem_copy = std::chrono::duration_cast<std::chrono::microseconds>(
-        job->shmem_done_time - job->dequeue_time).count();
-    auto pg_exec = std::chrono::duration_cast<std::chrono::microseconds>(
-        job->pg_result_time - job->pg_send_time).count();
-    auto result_proc = std::chrono::duration_cast<std::chrono::microseconds>(
-        job->process_done_time - job->pg_result_time).count();
-    auto total = std::chrono::duration_cast<std::chrono::microseconds>(
-        job->process_done_time - job->create_time).count();
-
-    // queue_wait 分解
-    auto enqueue_delay = std::chrono::duration_cast<std::chrono::microseconds>(
-        job->enqueue_time - job->create_time).count();
-    auto in_queue = std::chrono::duration_cast<std::chrono::microseconds>(
-        job->pool_dequeue_time - job->enqueue_time).count();
-    auto conn_wait = std::chrono::duration_cast<std::chrono::microseconds>(
-        job->conn_assigned_time - job->conn_wait_start).count();
-    auto worker_wait = std::chrono::duration_cast<std::chrono::microseconds>(
-        job->dequeue_time - job->conn_assigned_time).count();
-
-    fprintf(stderr, "[perf] type=%d, queue_wait=%ld (enqueue=%ld, in_queue=%ld, conn_wait=%ld, worker_wait=%ld), "
-            "shmem_copy=%ld, pg_exec=%ld, result_proc=%ld, total=%ld us\n",
-            serviceType, queue_wait, enqueue_delay, in_queue, conn_wait, worker_wait,
-            shmem_copy, pg_exec, result_proc, total);
-    fflush(stderr);
 }
 
 PGConnection::PGConnection(PGConnectionPool *parent, const char *ip, const int port, const char *userName)
@@ -79,11 +46,21 @@ void PGConnection::BackgroundWorker()
             break;
         this->tasksToExec.wait_dequeue(taskToExec);
 
-        // 记录出队时间
-        auto dequeue_time = std::chrono::steady_clock::now();
+        uint64_t workerStartTime = LatencyTimer::GetCurrentTimeNs();
+        LatencyData* queueWaitData = GetQueueWaitLatencyData();
+        LatencyData* workerWaitData = GetWorkerWaitLatencyData();
         for (auto& job : taskToExec->jobList) {
-            job->dequeue_time = dequeue_time;
+            if (queueWaitData) {
+                ReportLatencyToShmemAtomic(queueWaitData, job->queueWaitTimer.GetElapsedNs());
+            }
+            // Report workerWaitLatency: time from dequeue to worker start
+            if (workerWaitData && job->dequeueTimeNs > 0) {
+                ReportLatencyToShmemAtomic(workerWaitData, workerStartTime - job->dequeueTimeNs);
+            }
         }
+
+        // shmemCopy 计时
+        LatencyTimer shmemCopyTimer(GetShmemCopyLatencyData());
 
         // 1. Reset status and check validity of input
         PGresult *res;
@@ -133,11 +110,7 @@ void PGConnection::BackgroundWorker()
             FALCON_SHMEM_ALLOCATOR_SET_SIGNATURE(FALCON_SHMEM_ALLOCATOR_GET_POINTER(allocator, totalParamShift),
                                                  signature);
 
-            // 记录共享内存复制完成时间
-            auto shmem_done_time = std::chrono::steady_clock::now();
-            for (auto& job : taskToExec->jobList) {
-                job->shmem_done_time = shmem_done_time;
-            }
+            shmemCopyTimer.End();
 
             // 2.1.2
             // barch operation can not be plain command
@@ -151,24 +124,18 @@ void PGConnection::BackgroundWorker()
                     (int64_t)totalParamShift,
                     signature);
 
-            // 记录发送SQL时间
-            auto pg_send_time = std::chrono::steady_clock::now();
-            for (auto& job : taskToExec->jobList) {
-                job->pg_send_time = pg_send_time;
-            }
-
+            // pgExec 计时
+            LatencyTimer pgExecTimer(GetPgExecTotalLatencyData());
             int sendQuerySucceed = PQsendQuery(conn, command);
             if (sendQuerySucceed != 1)
                 throw std::runtime_error(PQerrorMessage(conn));
 
             PGresult *res = NULL;
             res = PQgetResult(conn);
+            pgExecTimer.End();
 
-            // 记录收到结果时间
-            auto pg_result_time = std::chrono::steady_clock::now();
-            for (auto& job : taskToExec->jobList) {
-                job->pg_result_time = pg_result_time;
-            }
+            // resultProc 计时
+            LatencyTimer resultProcTimer(GetResultProcLatencyData());
 
             if (res == NULL)
                 throw std::runtime_error(PQerrorMessage(conn));
@@ -196,7 +163,6 @@ void PGConnection::BackgroundWorker()
                     char *data = (char *)malloc(replyBuilder.size);
                     memcpy(data, replyBuilder.buffer, replyBuilder.size);
                     cntl->response_attachment().append_user_data(data, replyBuilder.size, NULL);
-                    LogJobPerf(taskToExec->jobList[i], serviceType);
                     taskToExec->jobList[i]->Done();
                 }
             } else {
@@ -222,15 +188,12 @@ void PGConnection::BackgroundWorker()
                         char *data = (char *)malloc(size);
                         memcpy(data, replyBuffer + p, size);
                         cntl->response_attachment().append_user_data(data, size, NULL);
-
-                        LogJobPerf(taskToExec->jobList[i], serviceType);
                         taskToExec->jobList[i]->Done();
                         p += size;
                     }
                     FalconShmemAllocatorFree(allocator, replyShift);
                 } else {
                     for (size_t i = 0; i < taskToExec->jobList.size(); ++i) {
-                        LogJobPerf(taskToExec->jobList[i], serviceType);
                         taskToExec->jobList[i]->Done();
                     }
                 }
@@ -258,9 +221,6 @@ void PGConnection::BackgroundWorker()
             SerializedData requestData;
             if (!SerializedDataInit(&requestData, paramBuffer, paramSize, paramSize, NULL))
                 throw std::runtime_error("request attachment is corrupt.");
-
-            // 记录共享内存复制完成时间
-            job->shmem_done_time = std::chrono::steady_clock::now();
 
             // 2.2.2
             std::stringstream toSendCommand;
@@ -313,17 +273,11 @@ void PGConnection::BackgroundWorker()
             }
 
             // 2.2.3
-            // 记录发送SQL时间
-            job->pg_send_time = std::chrono::steady_clock::now();
-
             PQsendQuery(conn, toSendCommand.str().c_str());
             std::vector<PGresult *> result;
             PGresult *res = NULL;
             while ((res = PQgetResult(conn)) != NULL)
                 result.push_back(res);
-
-            // 记录收到结果时间
-            job->pg_result_time = std::chrono::steady_clock::now();
 
             FalconShmemAllocatorFree(allocator, paramShift);
             if (result.size() != isPlainCommand.size()) {
@@ -391,11 +345,6 @@ void PGConnection::BackgroundWorker()
             //
             // SerializedDataDestroy
             job->GetCntl()->response_attachment().append_user_data(replyData.buffer, replyData.size, NULL);
-
-            // 打印性能日志
-            int firstType = job->GetRequest()->type_size() > 0 ? job->GetRequest()->type(0) : -1;
-            LogJobPerf(job, firstType);
-
             job->Done();
 
             for (size_t i = 0; i < result.size(); ++i)

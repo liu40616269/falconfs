@@ -7,8 +7,8 @@
 
 #include <memory>
 #include <mutex>
-#include <chrono>
 #include "connection_pool/falcon_meta_service_interface.h"
+#include "perf_counter/perf_stat.h"
 
 class PGConnection;
 class PGConnectionPool;
@@ -26,7 +26,6 @@ private:
     FalconMetaServiceResponse response;
     FalconMetaServiceCallback callback;
     void* user_context;
-    std::chrono::steady_clock::time_point start_time;  // 请求接收时间
 
     void CleanupResponseData() {
         if (response.data != nullptr) {
@@ -73,11 +72,18 @@ private:
     }
 
 public:
+    LatencyTimer totalRequestTimer;  // 用于计算 total_request
+
     AsyncFalconMetaServiceJob(const FalconMetaServiceRequest& req,
                               FalconMetaServiceCallback cb,
                               void* ctx)
-        : request(req), callback(cb), user_context(ctx),
-          start_time(std::chrono::steady_clock::now()) {}
+        : request(req), callback(cb), user_context(ctx)
+    {
+        LatencyData* latencyData = GetTotalRequestLatencyData();
+        if (latencyData) {
+            totalRequestTimer.BindAndStart(latencyData);
+        }
+    }
 
     ~AsyncFalconMetaServiceJob() {
         CleanupResponseData();
@@ -87,13 +93,7 @@ public:
     FalconMetaServiceResponse& GetResponse() { return response; }
 
     void Done() {
-        auto end_time = std::chrono::steady_clock::now();
-        auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
-
-        printf("[perf][FalconMetaService] opcode=%d(%s), status=%d, total=%ld us\n",
-               response.opcode, FalconMetaOperationTypeName(response.opcode),
-               response.status, total_us);
-        fflush(stdout);
+        totalRequestTimer.End();
 
         if (callback) {
             callback(response, user_context);

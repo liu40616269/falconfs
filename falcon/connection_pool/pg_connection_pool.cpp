@@ -61,32 +61,27 @@ int PGConnectionPool::BatchDequeueExec(int toDequeue, int queueIndex)
     taskVecPtr->isBatch = true;
     taskVecPtr->jobList.reserve(toDequeue);
     int count = supportBatchTaskList[queueIndex].task->jobList.try_dequeue_bulk(
-        std::back_inserter(taskVecPtr->jobList), 
+        std::back_inserter(taskVecPtr->jobList),
         toDequeue
     );
     if (count == 0) {
         return 0;
     }
 
-    // 记录从队列取出的时间
-    auto pool_dequeue = std::chrono::steady_clock::now();
+    // Record dequeue time for all jobs and report inQueueLatency
+    uint64_t dequeueTime = LatencyTimer::GetCurrentTimeNs();
+    LatencyData* inQueueData = GetInQueueLatencyData();
     for (auto& job : taskVecPtr->jobList) {
-        job->pool_dequeue_time = pool_dequeue;
+        job->dequeueTimeNs = dequeueTime;
+        if (job->enqueueTimeNs > 0 && inQueueData) {
+            ReportLatencyToShmemAtomic(inQueueData, dequeueTime - job->enqueueTimeNs);
+        }
     }
 
-    // 记录开始等待连接的时间
-    auto conn_wait_start = std::chrono::steady_clock::now();
-    for (auto& job : taskVecPtr->jobList) {
-        job->conn_wait_start = conn_wait_start;
-    }
-
+    // Measure connection wait time
+    LatencyTimer connWaitTimer(GetConnWaitLatencyData());
     PGConnection *conn = GetPGConnection(); // get idle connection, may block
-
-    // 记录分配到连接的时间
-    auto conn_assigned = std::chrono::steady_clock::now();
-    for (auto& job : taskVecPtr->jobList) {
-        job->conn_assigned_time = conn_assigned;
-    }
+    connWaitTimer.End();
 
     conn->Exec(taskVecPtr);
     return count;
@@ -103,20 +98,21 @@ int PGConnectionPool::SingleDequeueExec(int toDequeue, std::vector<falcon::meta_
         return 0;
     }
 
-    // 记录从队列取出的时间
-    auto pool_dequeue = std::chrono::steady_clock::now();
+    // Record dequeue time and report inQueueLatency
+    uint64_t dequeueTime = LatencyTimer::GetCurrentTimeNs();
+    LatencyData* inQueueData = GetInQueueLatencyData();
     for (auto &e : tasksContainer) {
-        e->pool_dequeue_time = pool_dequeue;
+        e->dequeueTimeNs = dequeueTime;
+        if (e->enqueueTimeNs > 0 && inQueueData) {
+            ReportLatencyToShmemAtomic(inQueueData, dequeueTime - e->enqueueTimeNs);
+        }
     }
 
     for (auto &e : tasksContainer) {
-        // 记录开始等待连接
-        e->conn_wait_start = std::chrono::steady_clock::now();
-
+        // Measure connection wait time
+        LatencyTimer connWaitTimer(GetConnWaitLatencyData());
         PGConnection *conn = GetPGConnection();
-
-        // 记录分配到连接
-        e->conn_assigned_time = std::chrono::steady_clock::now();
+        connWaitTimer.End();
 
         auto taskVecPtr = std::make_shared<WorkerTask>();
         taskVecPtr->jobList.emplace_back(e);
@@ -192,9 +188,7 @@ void PGConnectionPool::DispatchAsyncMetaServiceJob(falcon::meta_proto::AsyncMeta
             }
     }
 
-    // 记录入队时间
-    job->enqueue_time = std::chrono::steady_clock::now();
-
+    uint64_t enqueueStartTime = LatencyTimer::GetCurrentTimeNs();
     if (allowBatchWithOthers) {
         while (!supportBatchTaskList[taskSupportBatchType].task->jobList.enqueue(job)) {
             std::cout << "DispatchAsyncMetaServiceJob: enqueue failed, type = " << taskSupportBatchType << std::endl;
@@ -205,6 +199,13 @@ void PGConnectionPool::DispatchAsyncMetaServiceJob(falcon::meta_proto::AsyncMeta
             std::cout << "DispatchAsyncMetaServiceJob: enqueue failed, type = " << taskSupportBatchType << std::endl;
             std::this_thread::yield();
         }
+    }
+    uint64_t enqueueEndTime = LatencyTimer::GetCurrentTimeNs();
+    job->enqueueTimeNs = enqueueEndTime;
+    // Report enqueue delay (time spent in retry loop)
+    uint64_t enqueueDelay = enqueueEndTime - enqueueStartTime;
+    if (enqueueDelay > 1000) { // Only report if > 1us (to avoid noise)
+        ReportLatencyToShmemAtomic(GetEnqueueDelayLatencyData(), enqueueDelay);
     }
 }
 
