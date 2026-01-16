@@ -245,3 +245,32 @@ StringInfo __attribute__((unused)) GetXattrIndexShardName(int shardId)
     appendStringInfo(xattrIndexShardName, "%s_%d_%s", XattrTableName, shardId, "index");
     return xattrIndexShardName;
 }
+
+static StringInfo GetSliceShardName(int shardId)
+{
+    StringInfo sliceShardName = makeStringInfo();
+    appendStringInfo(sliceShardName, "%s_%d", SliceTableName, shardId);
+    return sliceShardName;
+}
+
+static StringInfo GetSliceIndexShardName(int shardId)
+{
+    StringInfo sliceIndexShardName = makeStringInfo();
+    appendStringInfo(sliceIndexShardName, "%s_%d_%s", SliceTableName, shardId, "index");
+    return sliceIndexShardName;
+}
+
+static StringInfo GetKvmetaShardName(int shardId)
+{
+    StringInfo kvmetaShardName = makeStringInfo();
+    appendStringInfo(kvmetaShardName, "%s_%d", KvmetaTableName, shardId);
+    return kvmetaShardName;
+}
+
+static StringInfo GetKvmetaIndexShardName(int shardId)
+{
+    StringInfo kvmetaIndexShardName = makeStringInfo();
+    appendStringInfo(kvmetaIndexShardName, "%s_%d_%s", KvmetaTableName, shardId, "index");
+    return kvmetaIndexShardName;
+}
+
