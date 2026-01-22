@@ -57,24 +57,6 @@ Datum falcon_create_kvmeta_table(PG_FUNCTION_ARGS)
     PG_RETURN_INT16(SUCCESS);
 }
 
-Datum falcon_create_distributed_data_table_by_range_point(PG_FUNCTION_ARGS)
-{
-    int rangePoint = PG_GETARG_INT32(0);
-
-    FalconCreateDistributedDataTableByRangePoint(rangePoint);
-
-    PG_RETURN_INT16(SUCCESS);
-}
-
-Datum falcon_drop_distributed_data_table_by_range_point(PG_FUNCTION_ARGS)
-{
-    int rangePoint = PG_GETARG_INT32(0);
-
-    FalconDropDistributedDataTableByRangePoint(rangePoint);
-
-    PG_RETURN_INT16(SUCCESS);
-}
-
 Datum falcon_prepare_commands(PG_FUNCTION_ARGS)
 {
     FalconPrepareCommands();
@@ -223,57 +205,6 @@ void FalconCreateKvmetaTable()
     }
     if (toExecCommand->len == 0)
         return;
-
-    int spiConnectionResult = SPI_connect();
-    if (spiConnectionResult != SPI_OK_CONNECT) {
-        SPI_finish();
-        FALCON_ELOG_ERROR(PROGRAM_ERROR, "could not connect to SPI manager.");
-    }
-
-    int spiQueryResult = SPI_execute(toExecCommand->data, false, 0);
-    if (spiQueryResult != SPI_OK_UTILITY) {
-        SPI_finish();
-        FALCON_ELOG_ERROR(PROGRAM_ERROR, "spi exec failed.");
-    }
-    SPI_finish();
-}
-
-void FalconCreateDistributedDataTableByRangePoint(int rangePoint)
-{
-    StringInfo toExecCommand = makeStringInfo();
-    StringInfo name = makeStringInfo();
-    appendStringInfo(name, "%s_%d", InodeTableName, rangePoint);
-    ConstructCreateInodeTableCommand(toExecCommand, name->data);
-    resetStringInfo(name);
-    appendStringInfo(name, "%s_%d", XattrTableName, rangePoint);
-    ConstructCreateXattrTableCommand(toExecCommand, name->data);
-
-    int spiConnectionResult = SPI_connect();
-    if (spiConnectionResult != SPI_OK_CONNECT) {
-        SPI_finish();
-        FALCON_ELOG_ERROR(PROGRAM_ERROR, "could not connect to SPI manager.");
-    }
-
-    int spiQueryResult = SPI_execute(toExecCommand->data, false, 0);
-    if (spiQueryResult != SPI_OK_UTILITY) {
-        SPI_finish();
-        FALCON_ELOG_ERROR(PROGRAM_ERROR, "spi exec failed.");
-    }
-    SPI_finish();
-}
-
-void FalconDropDistributedDataTableByRangePoint(int rangePoint)
-{
-    StringInfo toExecCommand = makeStringInfo();
-    StringInfo name = makeStringInfo();
-    appendStringInfo(name, "%s_%d", InodeTableName, rangePoint);
-    appendStringInfo(toExecCommand, "ALTER EXTENSION falcon DROP TABLE %s; DROP TABLE %s;",
-        name->data, name->data);
-    
-    resetStringInfo(name);
-    appendStringInfo(name, "%s_%d", XattrTableName, rangePoint);
-    appendStringInfo(toExecCommand, "ALTER EXTENSION falcon DROP TABLE %s; DROP TABLE %s;",
-        name->data, name->data);
 
     int spiConnectionResult = SPI_connect();
     if (spiConnectionResult != SPI_OK_CONNECT) {

@@ -32,7 +32,7 @@
 PG_MODULE_MAGIC;
 
 /* Plugin system GUC variables */
-char *falcon_plugin_directory = NULL;
+__attribute__((visibility("default"))) char *falcon_plugin_directory = NULL;
 
 void _PG_init(void);
 static void FalconStart2PCCleanupWorker(void);

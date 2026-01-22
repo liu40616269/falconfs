@@ -60,11 +60,6 @@ int HcomMetaService::DispatchHcomMetaServiceJob(HcomMetaServiceJob *job)
 
     FalconMetaServiceRequest &request = job->GetRequest();
 
-    fprintf(stderr,
-            "[LOG] [HcomMetaService] DispatchHcomMetaServiceJob: opcode=%d(%s)\n",
-            static_cast<int>(request.operation),
-            FalconMetaOperationTypeName(request.operation));
-
     if (job->GetResponse().status != SUCCESS) {
         job->Done();
         delete job;
@@ -87,11 +82,6 @@ int HcomMetaService::SubmitFalconMetaRequest(const FalconMetaServiceRequest &req
                                              FalconMetaServiceCallback callback,
                                              void *user_context)
 {
-    fprintf(stderr,
-            "[LOG] [HcomMetaService] SubmitFalconMetaRequest: opcode=%d(%s)\n",
-            static_cast<int>(request.operation),
-            FalconMetaOperationTypeName(request.operation));
-
     HcomMetaServiceJob *job = new HcomMetaServiceJob(request, callback, user_context);
     return DispatchHcomMetaServiceJob(job);
 }

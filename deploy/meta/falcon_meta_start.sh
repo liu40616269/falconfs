@@ -50,7 +50,8 @@ server_port_list=()
 
 shardcount=50
 
-comm_plugin_path="$PG_INSTALL_DIR/lib/postgresql/lib${COMM_PLUGIN}plugin.so"
+FALCONFS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null 2>&1 && pwd)"
+comm_plugin_path="$FALCONFS_DIR/falcon/lib${COMM_PLUGIN}plugin.so"
 
 if [[ "$cnIp" == "$localIp" ]]; then
     cnPath="${cnPathPrefix}0"

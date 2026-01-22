@@ -165,13 +165,6 @@ void HcomMetaServiceJob::Done()
     auto end_time = std::chrono::steady_clock::now();
     auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(end_time - m_start_time).count();
 
-    printf("[perf][FalconMetaService] opcode=%d(%s), status=%d, total=%ld us\n",
-           m_response.opcode,
-           FalconMetaOperationTypeName(m_response.opcode),
-           m_response.status,
-           total_us);
-    fflush(stdout);
-
     if (m_callback) {
         m_callback(m_response, m_user_context);
         CleanupResponseData(m_response);

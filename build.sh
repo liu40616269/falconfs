@@ -87,7 +87,17 @@ build_comm_plugin() {
         echo "Building hcom communication plugin..."
         cd "$FALCONFS_DIR/falcon" && make -f MakefilePlugin.hcom
         echo "hcom communication plugin build complete."
-        ;;
+        
+        # Copy test plugins to plugins directory for hcom
+        local test_plugin_src="$BUILD_DIR/test_plugins"
+        local plugins_dest="$FALCONFS_DIR/plugins"
+        if [[ -d "$test_plugin_src" ]]; then
+            echo "Copying test plugins to $plugins_dest..."
+            mkdir -p "$plugins_dest"
+            cp -f "$test_plugin_src"/*.so "$plugins_dest/" 2>/dev/null || true
+            echo "Test plugins copied."
+        fi
+	;;
     esac
 }
 

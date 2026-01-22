@@ -30,7 +30,6 @@ static HcomMetaService *g_meta_service = nullptr;
 static int g_test_passed = 0;
 static int g_test_failed = 0;
 static int g_test_skipped = 0;
-static int g_node_port = 0;
 static bool g_is_cn_node = false;
 static std::atomic<int> g_loop_iteration(0);  // 循环计数器，用于生成唯一标识
 
@@ -2330,17 +2329,6 @@ int plugin_init(FalconPluginData *data)
         return -1;
     }
 
-    FalconNodeInfo node_info;
-    FalconPluginGetNodeInfo(&node_info);
-
-    printf("[FalconMetaServiceTestPlugin] Node info: %s:%d (pooler=%d)\n",
-           node_info.node_ip,
-           node_info.node_port,
-           node_info.pooler_port);
-    fflush(stdout);
-
-    g_node_port = node_info.node_port;
-
     printf("[FalconMetaServiceTestPlugin] plugin_init() completed\n");
     fflush(stdout);
 
@@ -2352,9 +2340,6 @@ FalconPluginWorkType plugin_get_type(void) { return FALCON_PLUGIN_TYPE_BACKGROUN
 int plugin_work(FalconPluginData *data)
 {
     printf("\n[FalconMetaServiceTestPlugin] plugin_work() called\n");
-    fflush(stdout);
-
-    printf("[FalconMetaServiceTestPlugin] Using HcomMetaService (pool port %d)...\n", g_node_port);
     fflush(stdout);
 
     g_meta_service = HcomMetaService::Instance();
