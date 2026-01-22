@@ -5,7 +5,7 @@ hcom_plugin_srcdir = hcom_comm_adapter
 HCOM_PLUGIN_CXX_OBJS += \
 	$(patsubst $(hcom_plugin_srcdir)/%.cpp,$(hcom_plugin_srcdir)/%.o, $(wildcard $(hcom_plugin_srcdir)/*.cpp))
 
-REMOTE_CONNECTION_DEF_DIR = $(falcon_srcdir)/../../../../remote_connection_def
+REMOTE_CONNECTION_DEF_DIR = $(falcon_srcdir)/../remote_connection_def
 CONNECTION_POOL_DIR = $(falcon_srcdir)/connection_pool
 
 FBS_DIR = $(shell find $(REMOTE_CONNECTION_DEF_DIR) -type d | grep -E '/fbs$$')

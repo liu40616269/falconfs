@@ -2,6 +2,38 @@
 DIR=$(dirname $(readlink -f "${BASH_SOURCE[0]}"))
 source $DIR/falcon_meta_config.sh
 
+# Parse command line arguments
+COMM_PLUGIN="brpc"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --comm-plugin=*)
+            COMM_PLUGIN="${1#*=}"
+            shift
+            ;;
+        --comm-plugin)
+            COMM_PLUGIN="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Usage: $0 [options]"
+            echo "Options:"
+            echo "  --comm-plugin=PLUGIN  Communication plugin: brpc (default) or hcom"
+            echo "  -h, --help            Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "$COMM_PLUGIN" != "brpc" && "$COMM_PLUGIN" != "hcom" ]]; then
+    echo "Unsupported COMM_PLUGIN '$COMM_PLUGIN' (use brpc or hcom)"
+    exit 1
+fi
+
 CPU_HALF=$(( $(nproc) / 2 ))
 [ $CPU_HALF -eq 0 ] && CPU_HALF=32
 FalconConnectionPoolSize=$CPU_HALF
@@ -17,6 +49,8 @@ server_ip_list=()
 server_port_list=()
 
 shardcount=50
+
+comm_plugin_path="$PG_INSTALL_DIR/lib/postgresql/lib${COMM_PLUGIN}plugin.so"
 
 if [[ "$cnIp" == "$localIp" ]]; then
     cnPath="${cnPathPrefix}0"
@@ -44,7 +78,7 @@ falcon_connection_pool.batch_size = $FalconConnectionPoolBatchSize
 falcon_connection_pool.wait_adjust = $FalconConnectionPoolWaitAdjust
 falcon_connection_pool.wait_min = $FalconConnectionPoolWaitMin
 falcon_connection_pool.wait_max = $FalconConnectionPoolWaitMax
-falcon_communication.plugin_path = '$PG_INSTALL_DIR/lib/postgresql/libhcomplugin.so'
+falcon_communication.plugin_path = '$comm_plugin_path'
 falcon_communication.server_ip = '$cnIp'
 falcon_plugin.directory = '$(cd $DIR/../.. && pwd)/plugins'
 falcon.local_ip = '$localIp'
@@ -94,7 +128,7 @@ falcon_connection_pool.batch_size = $FalconConnectionPoolBatchSize
 falcon_connection_pool.wait_adjust = $FalconConnectionPoolWaitAdjust
 falcon_connection_pool.wait_min = $FalconConnectionPoolWaitMin
 falcon_connection_pool.wait_max = $FalconConnectionPoolWaitMax
-falcon_communication.plugin_path = '$PG_INSTALL_DIR/lib/postgresql/libhcomplugin.so'
+falcon_communication.plugin_path = '$comm_plugin_path'
 falcon_communication.server_ip = '${workerIp}'
 falcon_plugin.directory = '$(cd $DIR/../.. && pwd)/plugins'
 falcon.local_ip = '$localIp'
