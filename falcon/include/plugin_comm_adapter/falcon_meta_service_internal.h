@@ -7,14 +7,16 @@
 
 #include <vector>
 
-#include "hcom_comm_adapter/hcom_meta_service.h"
+#include "plugin_comm_adapter/falcon_meta_service.h"
 
 extern "C" {
 #include "remote_connection_utils/error_code_def.h"
 }
 
-namespace falcon {
-namespace meta_service {
+namespace falcon
+{
+namespace meta_service
+{
 
 constexpr size_t FALCON_MAX_NAME_LENGTH = 255;
 
@@ -25,7 +27,7 @@ constexpr size_t FALCON_MAX_NAME_LENGTH = 255;
  * 使用 SerializedData 封装 FlatBuffers 数据
  */
 class FalconMetaServiceSerializer {
-public:
+  public:
     /**
      * 将 Falcon 元数据请求序列化为 FlatBuffers 格式
      *
@@ -36,9 +38,8 @@ public:
      * 请求格式规范 (SerializedData):
      * [size: 4字节] + [FlatBuffers数据: 对齐后的字节]
      */
-    static FalconErrorCode SerializeRequestToSerializedData(
-        const FalconMetaServiceRequest& request,
-        std::vector<char>& buffer);
+    static FalconErrorCode SerializeRequestToSerializedData(const FalconMetaServiceRequest &request,
+                                                            std::vector<char> &buffer);
 
     /**
      * 从 FlatBuffers 格式反序列化 Falcon 元数据响应
@@ -52,11 +53,10 @@ public:
      * FlatBuffers 响应格式 (SerializedData):
      * [size: 4 bytes] + [FlatBuffers MetaResponse: aligned bytes]
      */
-    static bool DeserializeResponseFromSerializedData(
-        const void* data,
-        size_t size,
-        FalconMetaServiceResponse* response,
-        FalconMetaOperationType operation);
+    static bool DeserializeResponseFromSerializedData(const void *data,
+                                                      size_t size,
+                                                      FalconMetaServiceResponse *response,
+                                                      FalconMetaOperationType operation);
 };
 
 } // namespace meta_service

@@ -13,9 +13,9 @@
 #include <thread>
 #include <vector>
 
-#include "hcom_comm_adapter/hcom_meta_service.h"
 #include "plugin/falcon_plugin_framework.h"
 #include "plugin/falcon_plugin_loader.h"
+#include "plugin_comm_adapter/falcon_meta_service.h"
 
 using namespace falcon::meta_service;
 
@@ -26,12 +26,12 @@ static const int TEST_TIMEOUT_MS = 10000;
 
 // ==================== 全局状态 ====================
 
-static HcomMetaService *g_meta_service = nullptr;
+static FalconMetaService *g_meta_service = nullptr;
 static int g_test_passed = 0;
 static int g_test_failed = 0;
 static int g_test_skipped = 0;
 static bool g_is_cn_node = false;
-static std::atomic<int> g_loop_iteration(0);  // 循环计数器，用于生成唯一标识
+static std::atomic<int> g_loop_iteration(0); // 循环计数器，用于生成唯一标识
 
 struct SyncContext
 {
@@ -172,7 +172,7 @@ static int WaitForResponse(SyncContext &ctx, const std::string &key = "")
     std::unique_lock<std::mutex> lock(ctx.mtx);
     while (!ctx.done) {
         if (ctx.cv.wait_for(lock, std::chrono::milliseconds(TEST_TIMEOUT_MS)) == std::cv_status::timeout) {
-//            printf("[TEST] ERROR: Request timeout for 10s, key is:%s\n", key.c_str());
+            //            printf("[TEST] ERROR: Request timeout for 10s, key is:%s\n", key.c_str());
             continue;
         }
     }
@@ -618,11 +618,11 @@ static int DoKvPut(const std::string &key, uint32_t value_len, const std::vector
     if (WaitForResponse(ctx, key) != 0)
         return -1;
 
-/*     printf("  KV_PUT key='%s' valueLen=%u slices=%zu -> status=%d\n",
-           key.c_str(),
-           value_len,
-           slices.size(),
-           ctx.resp.status); */
+    /*     printf("  KV_PUT key='%s' valueLen=%u slices=%zu -> status=%d\n",
+               key.c_str(),
+               value_len,
+               slices.size(),
+               ctx.resp.status); */
     return ctx.resp.status;
 }
 
@@ -645,7 +645,7 @@ static int DoKvGet(const std::string &key, KvDataResponse *out_resp = nullptr)
         /* printf("  KV_GET -> valueLen=%u slices=%d\n", out_resp->kv_data.valueLen, out_resp->kv_data.sliceNum); */
     }
 
- /*    printf("  KV_GET key='%s' -> status=%d\n", key.c_str(), ctx.resp.status); */
+    /*    printf("  KV_GET key='%s' -> status=%d\n", key.c_str(), ctx.resp.status); */
     return ctx.resp.status;
 }
 
@@ -662,7 +662,7 @@ static int DoKvDelete(const std::string &key)
     if (WaitForResponse(ctx) != 0)
         return -1;
 
-/*     printf("  KV_DELETE key='%s' -> status=%d\n", key.c_str(), ctx.resp.status); */
+    /*     printf("  KV_DELETE key='%s' -> status=%d\n", key.c_str(), ctx.resp.status); */
     return ctx.resp.status;
 }
 
@@ -771,9 +771,10 @@ static bool TestFileOperations()
     status = DoStat(file_path, &stat_resp);
     TEST_ASSERT(status == 0, "STAT failed");
     TEST_ASSERT_MSG(stat_resp.st_ino == create_resp.st_ino,
-                    "STAT: inode mismatch (expected %lu, got %lu)", create_resp.st_ino, stat_resp.st_ino);
-    printf("  STAT succeeded: inode=%lu, mode=0%o, size=%ld\n",
-           stat_resp.st_ino, stat_resp.st_mode, stat_resp.st_size);
+                    "STAT: inode mismatch (expected %lu, got %lu)",
+                    create_resp.st_ino,
+                    stat_resp.st_ino);
+    printf("  STAT succeeded: inode=%lu, mode=0%o, size=%ld\n", stat_resp.st_ino, stat_resp.st_mode, stat_resp.st_size);
 
     // 3. OPEN 文件
     OpenResponse open_resp;
@@ -792,7 +793,9 @@ static bool TestFileOperations()
     status = DoStat(file_path, &stat_resp);
     TEST_ASSERT(status == 0, "STAT after CLOSE failed");
     TEST_ASSERT_MSG(stat_resp.st_size == new_size,
-                    "STAT after CLOSE: size mismatch (expected %ld, got %ld)", new_size, stat_resp.st_size);
+                    "STAT after CLOSE: size mismatch (expected %ld, got %ld)",
+                    new_size,
+                    stat_resp.st_size);
     printf("  STAT after CLOSE: size=%ld (verified)\n", stat_resp.st_size);
 
     // 6. UNLINK 文件
@@ -1100,8 +1103,8 @@ static bool TestKvOperations()
 {
     TEST_BEGIN("KV Operations (PUT_KEY_META/GET_KV_META/DELETE_KV_META)");
 
-    std::string test_key = "falcon_test_key_" + std::to_string(time(nullptr)) +
-                           "_" + std::to_string(g_loop_iteration.load());
+    std::string test_key =
+        "falcon_test_key_" + std::to_string(time(nullptr)) + "_" + std::to_string(g_loop_iteration.load());
 
     // 1. 准备 slice 数据
     std::vector<FormDataSlice> slices;
@@ -1180,8 +1183,9 @@ static bool TestKvOperations()
     // 不同实现可能有不同行为，这里只记录
 
     // 8. 测试 GET 不存在的 key
-    status = DoKvGet("nonexistent_key_xyz_" + std::to_string(time(nullptr)) +
-                     "_" + std::to_string(g_loop_iteration.load()), nullptr);
+    status =
+        DoKvGet("nonexistent_key_xyz_" + std::to_string(time(nullptr)) + "_" + std::to_string(g_loop_iteration.load()),
+                nullptr);
     TEST_ASSERT(status != 0, "KV_GET non-existent key should fail");
     printf("  KV_GET non-existent key correctly failed with status=%d\n", status);
 
@@ -1241,8 +1245,7 @@ static bool TestKvPerformance()
         int local_failure = 0;
 
         for (int i = 0; i < MT_OPS_PER_THREAD; i++) {
-            std::string key = key_prefix + "mt_put_t" + std::to_string(thread_id) +
-                              "_" + std::to_string(i);
+            std::string key = key_prefix + "mt_put_t" + std::to_string(thread_id) + "_" + std::to_string(i);
             int status = DoKvPut(key, total_value_len, test_slices);
             if (status == 0) {
                 local_success++;
@@ -1258,11 +1261,13 @@ static bool TestKvPerformance()
         double thread_time_sec = std::chrono::duration<double>(thread_end - thread_start).count();
         double thread_throughput = local_success / thread_time_sec;
         printf("  [Thread %2d] Completed %d ops in %.2f sec (%.0f ops/sec)\n",
-               thread_id, local_success, thread_time_sec, thread_throughput);
+               thread_id,
+               local_success,
+               thread_time_sec,
+               thread_throughput);
     };
 
-    printf("  Starting %d threads, each performing %d KV_PUT operations...\n",
-           MT_THREAD_COUNT, MT_OPS_PER_THREAD);
+    printf("  Starting %d threads, each performing %d KV_PUT operations...\n", MT_THREAD_COUNT, MT_OPS_PER_THREAD);
 
     auto mt_put_start = std::chrono::high_resolution_clock::now();
 
@@ -1307,8 +1312,7 @@ static bool TestKvPerformance()
         int local_failure = 0;
 
         for (int i = 0; i < MT_OPS_PER_THREAD; i++) {
-            std::string key = key_prefix + "mt_put_t" + std::to_string(thread_id) +
-                              "_" + std::to_string(i);
+            std::string key = key_prefix + "mt_put_t" + std::to_string(thread_id) + "_" + std::to_string(i);
             KvDataResponse get_resp;
             int status = DoKvGet(key, &get_resp);
             if (status == 0) {
@@ -1325,11 +1329,13 @@ static bool TestKvPerformance()
         double thread_time_sec = std::chrono::duration<double>(thread_end - thread_start).count();
         double thread_throughput = local_success / thread_time_sec;
         printf("  [Thread %2d] Completed %d ops in %.2f sec (%.0f ops/sec)\n",
-               thread_id, local_success, thread_time_sec, thread_throughput);
+               thread_id,
+               local_success,
+               thread_time_sec,
+               thread_throughput);
     };
 
-    printf("  Starting %d threads, each performing %d KV_GET operations...\n",
-           MT_THREAD_COUNT, MT_OPS_PER_THREAD);
+    printf("  Starting %d threads, each performing %d KV_GET operations...\n", MT_THREAD_COUNT, MT_OPS_PER_THREAD);
 
     auto mt_get_start = std::chrono::high_resolution_clock::now();
 
@@ -1368,8 +1374,7 @@ static bool TestKvPerformance()
     // 删除多线程吞吐量测试的key
     for (int thread_id = 0; thread_id < MT_THREAD_COUNT; thread_id++) {
         for (int i = 0; i < MT_OPS_PER_THREAD; i++) {
-            std::string key = key_prefix + "mt_put_t" + std::to_string(thread_id) +
-                              "_" + std::to_string(i);
+            std::string key = key_prefix + "mt_put_t" + std::to_string(thread_id) + "_" + std::to_string(i);
             if (DoKvDelete(key) == 0) {
                 deleted_count++;
             }
@@ -1452,8 +1457,8 @@ static bool TestSlicePerformance()
         int local_failure = 0;
 
         for (int i = 0; i < MT_OPS_PER_THREAD; i++) {
-            std::string filename = file_prefix + "mt_put_t" + std::to_string(thread_id) +
-                                   "_" + std::to_string(i) + ".dat";
+            std::string filename =
+                file_prefix + "mt_put_t" + std::to_string(thread_id) + "_" + std::to_string(i) + ".dat";
             CreateResponse create_resp;
             if (DoCreate(filename, &create_resp) == 0) {
                 SliceIdResponse slice_resp;
@@ -1478,11 +1483,13 @@ static bool TestSlicePerformance()
         double thread_time_sec = std::chrono::duration<double>(thread_end - thread_start).count();
         double thread_throughput = local_success / thread_time_sec;
         printf("  [Thread %2d] Completed %d ops in %.2f sec (%.0f ops/sec)\n",
-               thread_id, local_success, thread_time_sec, thread_throughput);
+               thread_id,
+               local_success,
+               thread_time_sec,
+               thread_throughput);
     };
 
-    printf("  Starting %d threads, each performing %d SLICE_PUT operations...\n",
-           MT_THREAD_COUNT, MT_OPS_PER_THREAD);
+    printf("  Starting %d threads, each performing %d SLICE_PUT operations...\n", MT_THREAD_COUNT, MT_OPS_PER_THREAD);
     printf("  Note: Each operation includes CREATE + FETCH_SLICE_ID + SLICE_PUT\n");
 
     auto mt_slice_put_start = std::chrono::high_resolution_clock::now();
@@ -1521,7 +1528,8 @@ static bool TestSlicePerformance()
     std::atomic<int> mt_slice_get_failure(0);
 
     // 先收集所有inode信息（需要在主线程完成，避免竞态条件）
-    struct FileInfo {
+    struct FileInfo
+    {
         std::string filename;
         uint64_t inode;
     };
@@ -1530,8 +1538,8 @@ static bool TestSlicePerformance()
     // 为每个线程的文件获取inode
     for (int thread_id = 0; thread_id < MT_THREAD_COUNT; thread_id++) {
         for (int i = 0; i < MT_OPS_PER_THREAD; i++) {
-            std::string filename = file_prefix + "mt_put_t" + std::to_string(thread_id) +
-                                   "_" + std::to_string(i) + ".dat";
+            std::string filename =
+                file_prefix + "mt_put_t" + std::to_string(thread_id) + "_" + std::to_string(i) + ".dat";
             StatResponse stat_resp;
             if (DoStat(filename, &stat_resp) == 0) {
                 thread_file_infos[thread_id].push_back({filename, stat_resp.st_ino});
@@ -1562,11 +1570,13 @@ static bool TestSlicePerformance()
         double thread_time_sec = std::chrono::duration<double>(thread_end - thread_start).count();
         double thread_throughput = local_success / thread_time_sec;
         printf("  [Thread %2d] Completed %d ops in %.2f sec (%.0f ops/sec)\n",
-               thread_id, local_success, thread_time_sec, thread_throughput);
+               thread_id,
+               local_success,
+               thread_time_sec,
+               thread_throughput);
     };
 
-    printf("  Starting %d threads, each performing %d SLICE_GET operations...\n",
-           MT_THREAD_COUNT, MT_OPS_PER_THREAD);
+    printf("  Starting %d threads, each performing %d SLICE_GET operations...\n", MT_THREAD_COUNT, MT_OPS_PER_THREAD);
 
     auto mt_slice_get_start = std::chrono::high_resolution_clock::now();
 
@@ -1602,8 +1612,8 @@ static bool TestSlicePerformance()
     int mt_deleted_count = 0;
     for (int thread_id = 0; thread_id < MT_THREAD_COUNT; thread_id++) {
         for (int i = 0; i < MT_OPS_PER_THREAD; i++) {
-            std::string filename = file_prefix + "mt_put_t" + std::to_string(thread_id) +
-                                   "_" + std::to_string(i) + ".dat";
+            std::string filename =
+                file_prefix + "mt_put_t" + std::to_string(thread_id) + "_" + std::to_string(i) + ".dat";
             if (DoUnlink(filename) == 0) {
                 mt_deleted_count++;
             }
@@ -1620,13 +1630,15 @@ static bool TestSlicePerformance()
     printf("║  SLICE_PUT (Multi-threaded, %2d threads):                    ║\n", MT_THREAD_COUNT);
     printf("║    Total ops:    %6d                                       ║\n", mt_slice_put_total_ops);
     printf("║    Throughput:   %6.0f ops/sec                             ║\n", mt_slice_put_throughput);
-    printf("║    Per-thread:   %6.0f ops/sec                             ║\n", mt_slice_put_throughput / MT_THREAD_COUNT);
+    printf("║    Per-thread:   %6.0f ops/sec                             ║\n",
+           mt_slice_put_throughput / MT_THREAD_COUNT);
     printf("║    Note: Each op = CREATE + FETCH_SLICE_ID + SLICE_PUT      ║\n");
     printf("║                                                              ║\n");
     printf("║  SLICE_GET (Multi-threaded, %2d threads):                    ║\n", MT_THREAD_COUNT);
     printf("║    Total ops:    %6d                                       ║\n", mt_slice_get_total_ops);
     printf("║    Throughput:   %6.0f ops/sec                             ║\n", mt_slice_get_throughput);
-    printf("║    Per-thread:   %6.0f ops/sec                             ║\n", mt_slice_get_throughput / MT_THREAD_COUNT);
+    printf("║    Per-thread:   %6.0f ops/sec                             ║\n",
+           mt_slice_get_throughput / MT_THREAD_COUNT);
     printf("╚══════════════════════════════════════════════════════════════╝\n");
     printf("\n");
 
@@ -1703,8 +1715,8 @@ static bool TestKvPutDuplicateKey()
 {
     TEST_BEGIN("KV PUT Duplicate Key");
 
-    std::string test_key = "falcon_dup_test_key_" + std::to_string(time(nullptr)) +
-                           "_" + std::to_string(g_loop_iteration.load());
+    std::string test_key =
+        "falcon_dup_test_key_" + std::to_string(time(nullptr)) + "_" + std::to_string(g_loop_iteration.load());
 
     // 1. 准备第一组 slice 数据
     std::vector<FormDataSlice> slices1;
@@ -1732,7 +1744,9 @@ static bool TestKvPutDuplicateKey()
     status = DoKvGet(test_key, &get_resp);
     TEST_ASSERT(status == 0, "KV_GET after duplicate PUT failed");
     printf("    -> After duplicate PUT: valueLen=%u (first=%u, second=%u)\n",
-           get_resp.kv_data.valueLen, value_len1, value_len2);
+           get_resp.kv_data.valueLen,
+           value_len1,
+           value_len2);
     printf("    -> Data unchanged? %s\n", get_resp.kv_data.valueLen == value_len1 ? "YES" : "NO");
 
     // 6. 清理
@@ -1791,7 +1805,8 @@ static bool TestSlicePutDuplicate()
     if (status == 0 && slice_info.slicenum > 0) {
         for (uint32_t i = 0; i < slice_info.slicenum && i < slice_info.sliceid.size(); i++) {
             printf("    -> slice[%u]: id=%lu, size=%u\n",
-                   i, slice_info.sliceid[i],
+                   i,
+                   slice_info.sliceid[i],
                    i < slice_info.slicesize.size() ? slice_info.slicesize[i] : 0);
         }
     }
@@ -1822,9 +1837,8 @@ static bool TestConcurrentFileCreation()
 
     auto create_files_worker = [&](int thread_id) {
         for (int i = 0; i < FILES_PER_THREAD; i++) {
-            std::string file_path = std::string("/concurrent_test_") + std::to_string(g_loop_iteration.load()) +
-                                    "_t" + std::to_string(thread_id) +
-                                    "_f" + std::to_string(i) + ".txt";
+            std::string file_path = std::string("/concurrent_test_") + std::to_string(g_loop_iteration.load()) + "_t" +
+                                    std::to_string(thread_id) + "_f" + std::to_string(i) + ".txt";
 
             // 创建文件
             CreateResponse create_resp;
@@ -1839,7 +1853,8 @@ static bool TestConcurrentFileCreation()
                 if (status != 0 || stat_resp.st_ino != create_resp.st_ino) {
                     std::lock_guard<std::mutex> lock(cout_mutex);
                     printf("  [Thread %d] Warning: File %s created but STAT failed or inode mismatch\n",
-                           thread_id, file_path.c_str());
+                           thread_id,
+                           file_path.c_str());
                     failure_count++;
                 }
 
@@ -1876,10 +1891,11 @@ static bool TestConcurrentFileCreation()
 
     TEST_ASSERT_MSG(success_count.load() == expected_files,
                     "Expected %d successful creations, got %d (failures: %d)",
-                    expected_files, success_count.load(), failure_count.load());
+                    expected_files,
+                    success_count.load(),
+                    failure_count.load());
 
-    TEST_ASSERT_MSG(failure_count.load() == 0,
-                    "Expected 0 failures, got %d", failure_count.load());
+    TEST_ASSERT_MSG(failure_count.load() == 0, "Expected 0 failures, got %d", failure_count.load());
 
     printf("  All %d files created and verified successfully in parallel\n", expected_files);
 
@@ -1901,7 +1917,8 @@ static bool TestConcurrentFetchSliceId()
     const uint32_t SLICE_COUNT_PER_REQUEST = 10;
 
     // 用于收集所有线程获取的ID范围
-    struct SliceIdRange {
+    struct SliceIdRange
+    {
         uint64_t start;
         uint64_t end;
         int thread_id;
@@ -1923,8 +1940,7 @@ static bool TestConcurrentFetchSliceId()
                 // 验证返回的ID范围
                 if (resp.end <= resp.start) {
                     failure_count++;
-                    printf("  [Thread %d] Request %d: Invalid range [%lu, %lu)\n",
-                           thread_id, i, resp.start, resp.end);
+                    printf("  [Thread %d] Request %d: Invalid range [%lu, %lu)\n", thread_id, i, resp.start, resp.end);
                     continue;
                 }
 
@@ -1932,7 +1948,10 @@ static bool TestConcurrentFetchSliceId()
                 if (count != SLICE_COUNT_PER_REQUEST) {
                     failure_count++;
                     printf("  [Thread %d] Request %d: Expected %u IDs, got %lu\n",
-                           thread_id, i, SLICE_COUNT_PER_REQUEST, count);
+                           thread_id,
+                           i,
+                           SLICE_COUNT_PER_REQUEST,
+                           count);
                     continue;
                 }
 
@@ -1951,7 +1970,9 @@ static bool TestConcurrentFetchSliceId()
 
     // 启动所有线程
     printf("  Starting %d threads, each fetching %d slice ID ranges (%u IDs per request)...\n",
-           THREAD_COUNT, REQUESTS_PER_THREAD, SLICE_COUNT_PER_REQUEST);
+           THREAD_COUNT,
+           REQUESTS_PER_THREAD,
+           SLICE_COUNT_PER_REQUEST);
     auto start_time = std::chrono::steady_clock::now();
 
     for (int i = 0; i < THREAD_COUNT; i++) {
@@ -1973,26 +1994,31 @@ static bool TestConcurrentFetchSliceId()
 
     TEST_ASSERT_MSG(success_count.load() == expected_requests,
                     "Expected %d successful requests, got %d (failures: %d)",
-                    expected_requests, success_count.load(), failure_count.load());
+                    expected_requests,
+                    success_count.load(),
+                    failure_count.load());
 
     // 验证所有ID范围不重叠
     printf("  Checking for ID range overlaps...\n");
-    std::sort(all_ranges.begin(), all_ranges.end(),
-              [](const SliceIdRange &a, const SliceIdRange &b) {
-                  return a.start < b.start;
-              });
+    std::sort(all_ranges.begin(), all_ranges.end(), [](const SliceIdRange &a, const SliceIdRange &b) {
+        return a.start < b.start;
+    });
 
     int overlap_count = 0;
     for (size_t i = 1; i < all_ranges.size(); i++) {
-        if (all_ranges[i].start < all_ranges[i-1].end) {
+        if (all_ranges[i].start < all_ranges[i - 1].end) {
             overlap_count++;
             printf("  [ERROR] Range overlap detected:\n");
             printf("    Thread %d Request %d: [%lu, %lu)\n",
-                   all_ranges[i-1].thread_id, all_ranges[i-1].request_id,
-                   all_ranges[i-1].start, all_ranges[i-1].end);
+                   all_ranges[i - 1].thread_id,
+                   all_ranges[i - 1].request_id,
+                   all_ranges[i - 1].start,
+                   all_ranges[i - 1].end);
             printf("    Thread %d Request %d: [%lu, %lu)\n",
-                   all_ranges[i].thread_id, all_ranges[i].request_id,
-                   all_ranges[i].start, all_ranges[i].end);
+                   all_ranges[i].thread_id,
+                   all_ranges[i].request_id,
+                   all_ranges[i].start,
+                   all_ranges[i].end);
             // 只显示前几个重叠，避免输出太多
             if (overlap_count >= 5) {
                 printf("  ... (showing first 5 overlaps only)\n");
@@ -2008,7 +2034,7 @@ static bool TestConcurrentFetchSliceId()
     // 统计信息
     uint64_t total_ids = 0;
     uint64_t min_id = all_ranges.empty() ? 0 : all_ranges[0].start;
-    uint64_t max_id = all_ranges.empty() ? 0 : all_ranges[all_ranges.size()-1].end;
+    uint64_t max_id = all_ranges.empty() ? 0 : all_ranges[all_ranges.size() - 1].end;
 
     for (const auto &range : all_ranges) {
         total_ids += (range.end - range.start);
@@ -2021,7 +2047,8 @@ static bool TestConcurrentFetchSliceId()
 
     TEST_ASSERT_MSG(total_ids == (uint64_t)(expected_requests * SLICE_COUNT_PER_REQUEST),
                     "Total allocated IDs (%lu) doesn't match expected (%d)",
-                    total_ids, expected_requests * SLICE_COUNT_PER_REQUEST);
+                    total_ids,
+                    expected_requests * SLICE_COUNT_PER_REQUEST);
 
     TEST_PASS("Concurrent Fetch Slice ID");
 }
@@ -2127,15 +2154,18 @@ static bool TestDoubleRenewShardTable()
 
     printf("  [Call #2] Result: status=%d, row=%u, col=%u\n", status2, resp2.row, resp2.col);
     printf("  [Call #2] Expected: skip reload (cache already loaded)\n");
-    printf("  [Call #2] Check PostgreSQL log for: '[DEBUG] falcon_renew_shard_table: shard table cache already loaded'\n");
+    printf(
+        "  [Call #2] Check PostgreSQL log for: '[DEBUG] falcon_renew_shard_table: shard table cache already loaded'\n");
 
     // 3. 验证两次返回的数据一致
     TEST_ASSERT_MSG(resp2.row == resp1.row,
                     "Second call returned different row count (expected %u, got %u)",
-                    resp1.row, resp2.row);
+                    resp1.row,
+                    resp2.row);
     TEST_ASSERT_MSG(resp2.col == resp1.col,
                     "Second call returned different col count (expected %u, got %u)",
-                    resp1.col, resp2.col);
+                    resp1.col,
+                    resp2.col);
 
     printf("  [Verified] Both calls returned same data: %u rows x %u cols\n", resp2.row, resp2.col);
 
@@ -2144,7 +2174,9 @@ static bool TestDoubleRenewShardTable()
         size_t check_rows = std::min(3u, std::min(resp1.row, resp2.row));
         bool data_match = true;
         for (size_t i = 0; i < check_rows; i++) {
-            for (uint32_t j = 0; j < resp1.col && i * resp1.col + j < resp1.data.size() && i * resp2.col + j < resp2.data.size(); j++) {
+            for (uint32_t j = 0;
+                 j < resp1.col && i * resp1.col + j < resp1.data.size() && i * resp2.col + j < resp2.data.size();
+                 j++) {
                 if (resp1.data[i * resp1.col + j] != resp2.data[i * resp2.col + j]) {
                     data_match = false;
                     printf("  [WARNING] Data mismatch at row %zu, col %u\n", i, j);
@@ -2342,8 +2374,8 @@ int plugin_work(FalconPluginData *data)
     printf("\n[FalconMetaServiceTestPlugin] plugin_work() called\n");
     fflush(stdout);
 
-    g_meta_service = HcomMetaService::Instance();
-    printf("[FalconMetaServiceTestPlugin] HcomMetaService instance ready\n");
+    g_meta_service = FalconMetaService::Instance();
+    printf("[FalconMetaServiceTestPlugin] FalconMetaService instance ready\n");
     fflush(stdout);
 
     // 运行所有测试

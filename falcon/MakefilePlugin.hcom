@@ -1,13 +1,13 @@
 # contrib/falcon/Makefile
 
 falcon_srcdir = .
-hcom_plugin_srcdir = hcom_comm_adapter
+hcom_plugin_srcdir = plugin_comm_adapter
 HCOM_PLUGIN_CXX_OBJS += \
 	$(patsubst $(hcom_plugin_srcdir)/%.cpp,$(hcom_plugin_srcdir)/%.o, $(wildcard $(hcom_plugin_srcdir)/*.cpp))
 HCOM_PLUGIN_C_OBJS += \
 	$(patsubst $(hcom_plugin_srcdir)/%.c,$(hcom_plugin_srcdir)/%.o,$(wildcard $(hcom_plugin_srcdir)/*.c))
 
-# serialized_data.c is in utils/, not hcom_comm_adapter/
+# serialized_data.c is in utils/, not plugin_comm_adapter/
 HCOM_PLUGIN_UTILS_C_OBJS = utils/serialized_data.o
 
 HCOM_PLUGIN_OBJS = $(HCOM_PLUGIN_CXX_OBJS) $(HCOM_PLUGIN_C_OBJS) $(HCOM_PLUGIN_UTILS_C_OBJS)
