@@ -76,6 +76,30 @@ parse_comm_plugin_option() {
 
 parse_comm_plugin_option "$@"
 
+install_requires_sudo() {
+	if [[ "$(id -u)" -eq 0 ]]; then
+		return 1
+	fi
+
+	if [[ -e "$FALCONFS_INSTALL_DIR" ]]; then
+		[[ ! -w "$FALCONFS_INSTALL_DIR" ]]
+	else
+		[[ ! -w "$(dirname "$FALCONFS_INSTALL_DIR")" ]]
+	fi
+}
+
+install_cmd() {
+	if install_requires_sudo; then
+		if ! command -v sudo >/dev/null 2>&1; then
+			echo "Error: sudo is required to write $FALCONFS_INSTALL_DIR" >&2
+			exit 1
+		fi
+		sudo "$@"
+	else
+		"$@"
+	fi
+}
+
 gen_proto() {
 	mkdir -p "$BUILD_DIR"
 	echo "Generating Protobuf files..."
@@ -175,7 +199,7 @@ clean_tests() {
 
 install_falcon_meta() {
 	echo "Installing FalconFS meta ..."
-	cd "$FALCONFS_DIR/falcon" && make USE_PGXS=1 install-falconfs \
+	cd "$FALCONFS_DIR/falcon" && install_cmd make USE_PGXS=1 install-falconfs \
 		FALCONFS_INSTALL_DIR="$FALCONFS_INSTALL_DIR"
 	echo "FalconFS meta installed"
 
@@ -193,13 +217,13 @@ install_falcon_meta() {
         echo "Error: communication plugin ($COMM_PLUGIN) not built at $plugin_src" >&2
         exit 1
     fi
-    echo "copy ${COMM_PLUGIN} communication plugin to $FALCON_META_INSTALL_DIR/lib/postgresql..."
-    cp "$plugin_src" "$FALCON_META_INSTALL_DIR/lib/postgresql/"
-    echo "${COMM_PLUGIN} communication plugin copied."
+	echo "copy ${COMM_PLUGIN} communication plugin to $FALCON_META_INSTALL_DIR/lib/postgresql..."
+	install_cmd cp "$plugin_src" "$FALCON_META_INSTALL_DIR/lib/postgresql/"
+	echo "${COMM_PLUGIN} communication plugin copied."
 
 	# 安装测试插件 (如果存在)
 	if [[ -f "$FALCONFS_DIR/falcon/libfalcon_meta_service_test_plugin.so" ]]; then
-		cp "$FALCONFS_DIR/falcon/libfalcon_meta_service_test_plugin.so" \
+		install_cmd cp "$FALCONFS_DIR/falcon/libfalcon_meta_service_test_plugin.so" \
 			"$FALCON_META_INSTALL_DIR/lib/postgresql/"
 		echo "test plugin copied."
 	fi
@@ -349,10 +373,10 @@ install_private_directory_test() {
 
 install_deploy_scripts() {
 	echo "Installing deploy scripts to $FALCONFS_INSTALL_DIR/deploy..."
-	rm -rf "$FALCONFS_INSTALL_DIR/deploy"
-	mkdir -p "$FALCONFS_INSTALL_DIR/deploy"
+	install_cmd rm -rf "$FALCONFS_INSTALL_DIR/deploy"
+	install_cmd mkdir -p "$FALCONFS_INSTALL_DIR/deploy"
 	# 复制 deploy 目录内容，排除 tmp 目录
-	rsync -av --exclude='tmp' "$FALCONFS_DIR/deploy/" "$FALCONFS_INSTALL_DIR/deploy/"
+	install_cmd rsync -av --exclude='tmp' "$FALCONFS_DIR/deploy/" "$FALCONFS_INSTALL_DIR/deploy/"
 	echo "deploy scripts installed to $FALCONFS_INSTALL_DIR/deploy"
 }
 
@@ -391,6 +415,26 @@ print_help() {
 		echo "Examples:"
 		echo "  $0 clean           # Clean everything"
 		echo "  $0 clean falcon    # Clean only FalconFS"
+		;;
+	test)
+		echo "Usage: $0 test [target] [options]"
+		echo ""
+		echo "Run FalconFS tests"
+		echo ""
+		echo "Targets:"
+		echo "  unit         Run default unit tests (default)"
+		echo "  metadata_dt  Run metadata design tests with a real metadata server"
+		echo ""
+		echo "Options:"
+		echo "  --install-server    Build and install current FalconFS server before metadata_dt"
+		echo "  --no-manage-server  Do not start/stop metadata server for metadata_dt"
+		echo "  -h, --help          Show this help message"
+		echo ""
+		echo "Examples:"
+		echo "  $0 test"
+		echo "  $0 test metadata_dt"
+		echo "  $0 test metadata_dt --install-server"
+		echo "  SERVER_IP=127.0.0.1 SERVER_PORT=51110 $0 test metadata_dt --no-manage-server"
 		;;
 	*)
 		# General help information
@@ -560,30 +604,74 @@ clean)
 		;;
 	esac
 	;;
-test)
-	TARGET_DIRS=("$FALCONFS_DIR/build/tests/falcon_store/" "$FALCONFS_DIR/build/tests/falcon_plugin/")
-
-	for TARGET_DIR in "${TARGET_DIRS[@]}"; do
-		if [ -d "$TARGET_DIR" ]; then
-			echo "Running tests in: $TARGET_DIR"
-			find "$TARGET_DIR" -type f -executable -name "*UT" | while read -r executable_file; do
-				echo "Executing: $executable_file"
-				"$executable_file"
-				echo "---------------------------------------------------------------------------------------"
+	test)
+		case "${2:-unit}" in
+		metadata_dt)
+			INSTALL_METADATA_DT_SERVER=false
+			for arg in "${@:3}"; do
+				case "$arg" in
+				--help | -h)
+					print_help "test"
+					exit 0
+					;;
+				--install-server | --install-falcon)
+					INSTALL_METADATA_DT_SERVER=true
+					;;
+				--no-manage-server)
+					export FALCON_METADATA_DT_MANAGE_SERVER=0
+					;;
+				*)
+					echo "Unknown metadata_dt test option: $arg" >&2
+					print_help "test"
+					exit 1
+					;;
+				esac
 			done
-		else
-			echo "Test directory not found: $TARGET_DIR"
-		fi
-	done
-	TARGET_DIR="$FALCONFS_DIR/build/tests/falcon/"
-	# Find executable files directly in the test directory (not in subdirectories)
-	# Exclude .cmake files and anything in CMakeFiles/
-	find "$TARGET_DIR" -maxdepth 1 -type f -executable -not -name "*.cmake" -not -path "*/CMakeFiles/*" | while read -r executable_file; do
-		echo "Executing: $executable_file"
-		"$executable_file"
-		echo "---------------------------------------------------------------------------------------"
-	done
-	echo "All unit tests passed."
+
+			if [[ "$INSTALL_METADATA_DT_SERVER" == "true" ]]; then
+				build_falconfs
+				install_falcon_meta
+				install_deploy_scripts
+			fi
+			cmake --build "$BUILD_DIR" --target FalconMetadataDT -j"$(nproc)"
+			: "${FALCON_METADATA_DT_MANAGE_SERVER:=1}"
+			"$FALCONFS_DIR/tests/metadata_dt/run_metadata_dt.sh" --gtest_color=no
+			echo "Metadata DT passed."
+			;;
+	unit | "")
+		TARGET_DIRS=("$FALCONFS_DIR/build/tests/falcon_store/" "$FALCONFS_DIR/build/tests/falcon_plugin/")
+
+		for TARGET_DIR in "${TARGET_DIRS[@]}"; do
+			if [ -d "$TARGET_DIR" ]; then
+				echo "Running tests in: $TARGET_DIR"
+				find "$TARGET_DIR" -type f -executable -name "*UT" | while read -r executable_file; do
+					echo "Executing: $executable_file"
+					"$executable_file"
+					echo "---------------------------------------------------------------------------------------"
+				done
+			else
+				echo "Test directory not found: $TARGET_DIR"
+			fi
+		done
+		TARGET_DIR="$FALCONFS_DIR/build/tests/falcon/"
+		# Find executable files directly in the test directory (not in subdirectories)
+		# Exclude .cmake files and anything in CMakeFiles/
+		find "$TARGET_DIR" -maxdepth 1 -type f -executable -not -name "*.cmake" -not -path "*/CMakeFiles/*" | while read -r executable_file; do
+			echo "Executing: $executable_file"
+			"$executable_file"
+			echo "---------------------------------------------------------------------------------------"
+		done
+		echo "All unit tests passed."
+		;;
+	--help | -h)
+		print_help "test"
+		;;
+	*)
+		echo "Unknown test target: ${2:-}" >&2
+		print_help "test"
+		exit 1
+		;;
+	esac
 	;;
 install)
 	case "${2:-}" in
