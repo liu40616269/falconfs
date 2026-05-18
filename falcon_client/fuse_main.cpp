@@ -5,8 +5,10 @@
 #define FUSE_USE_VERSION 26
 
 #include <execinfo.h>
+#include <cerrno>
 #include <securec.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <atomic>
 #include <csignal>
@@ -30,6 +32,41 @@
 #endif
 
 static bool g_persist = false;
+
+static int64_t ConvertTimestampFromUnixToPG(const struct timespec &tv)
+{
+    constexpr int64_t SECONDS_DIFF_BETWEEN_PG_AND_UNIX = 946684800;
+    constexpr int64_t USECS_PER_SEC = 1000000;
+    constexpr int64_t NSECS_PER_USEC = 1000;
+    return (static_cast<int64_t>(tv.tv_sec) - SECONDS_DIFF_BETWEEN_PG_AND_UNIX) * USECS_PER_SEC +
+           tv.tv_nsec / NSECS_PER_USEC;
+}
+
+static int ResolveUtimensTimestamp(const struct timespec tv[2],
+                                   int index,
+                                   const struct stat *oldStat,
+                                   int64_t *timestamp)
+{
+    if (tv[index].tv_nsec == UTIME_NOW) {
+        struct timespec now = {};
+        if (clock_gettime(CLOCK_REALTIME, &now) != 0) {
+            return -errno;
+        }
+        *timestamp = ConvertTimestampFromUnixToPG(now);
+        return 0;
+    }
+
+    if (tv[index].tv_nsec == UTIME_OMIT) {
+        if (oldStat == nullptr) {
+            return -EINVAL;
+        }
+        *timestamp = ConvertTimestampFromUnixToPG(index == 0 ? oldStat->st_atim : oldStat->st_mtim);
+        return 0;
+    }
+
+    *timestamp = ConvertTimestampFromUnixToPG(tv[index]);
+    return 0;
+}
 
 int DoGetAttr(const char *path, struct stat *stbuf)
 {
@@ -341,12 +378,37 @@ int DoUtimens(const char *path, const struct timespec tv[2])
     if (path == nullptr || strlen(path) == 0) {
         return -EINVAL;
     }
-    int ret = 0;
-    if (!tv || tv[0].tv_nsec == UTIME_NOW) {
-        ret = FalconUtimens(path);
-    } else {
-        ret = FalconUtimens(path, tv[0].tv_sec, tv[1].tv_sec);
+
+    if (!tv) {
+        int ret = FalconUtimens(path);
+        return ret > 0 ? -ErrorCodeToErrno(ret) : ret;
     }
+
+    if (tv[0].tv_nsec == UTIME_OMIT && tv[1].tv_nsec == UTIME_OMIT) {
+        return 0;
+    }
+
+    struct stat oldStat = {};
+    struct stat *oldStatPtr = nullptr;
+    if (tv[0].tv_nsec == UTIME_OMIT || tv[1].tv_nsec == UTIME_OMIT) {
+        int ret = FalconGetStat(path, &oldStat);
+        if (ret != SUCCESS) {
+            return ret > 0 ? -ErrorCodeToErrno(ret) : ret;
+        }
+        oldStatPtr = &oldStat;
+    }
+
+    int64_t accessTime = 0;
+    int64_t modifyTime = 0;
+    int ret = ResolveUtimensTimestamp(tv, 0, oldStatPtr, &accessTime);
+    if (ret != 0) {
+        return ret;
+    }
+    ret = ResolveUtimensTimestamp(tv, 1, oldStatPtr, &modifyTime);
+    if (ret != 0) {
+        return ret;
+    }
+    ret = FalconUtimens(path, accessTime, modifyTime);
     return ret > 0 ? -ErrorCodeToErrno(ret) : ret;
 }
 
