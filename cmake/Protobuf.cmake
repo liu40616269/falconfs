@@ -15,8 +15,8 @@ add_custom_command(
 # 生成 brpc_io.proto 的代码
 add_custom_command(
     OUTPUT ${BRPC_SRC} ${BRPC_HEADER}
-    COMMAND protoc --cpp_out=${CMAKE_BINARY_DIR} --proto_path=${PROJECT_SOURCE_DIR}/falcon_store/src/brpc brpc_io.proto
-    DEPENDS ${PROJECT_SOURCE_DIR}/falcon_store/src/brpc/brpc_io.proto
+    COMMAND protoc --cpp_out=${CMAKE_BINARY_DIR} --proto_path=${CMAKE_SOURCE_DIR}/remote_connection_def/proto brpc_io.proto
+    DEPENDS ${CMAKE_SOURCE_DIR}/remote_connection_def/proto/brpc_io.proto
     COMMENT "Generating Protobuf files for brpc_io.proto"
 )
 # 定义一个自定义目标，用于管理 Protobuf 生成的代码

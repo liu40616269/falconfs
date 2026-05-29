@@ -21,12 +21,15 @@
 
 #include "dir_path_shmem/dir_path_hash.h"
 #include "distributed_backend/remote_comm_falcon.h"
+#include "metadb/key_block_table.h"
 #include "metadb/meta_handle_helper.h"
 #include "metadb/meta_process_info.h"
 #include "metadb/meta_serialize_interface_helper.h"
 #include "metadb/shard_table.h"
+#include "metadb/size_file_table.h"
 #include "perf_counter/falcon_per_request_stat.h"
 #include "utils/path_parse.h"
+#include "utils/utils.h"
 #include "utils/utils_standalone.h"
 
 MemoryManager PgMemoryManager = {.alloc = palloc, .free = pfree, .realloc = repalloc};
@@ -3084,4 +3087,469 @@ void FalconFetchSliceIdHandle(SliceIdProcessInfo info)
     info->errorCode = SUCCESS;
 
     STAT_CKPT(info->statArrayIndex, CKPT_HANDLER_START + 2);
+}
+
+static Oid FalconTableIndexOid(const char *tableName)
+{
+    char *indexName = psprintf("%s_index", tableName);
+    Oid indexOid = GetRelationOidByName_FALCON(indexName);
+    pfree(indexName);
+    return indexOid;
+}
+
+static void FillKeyBlockInfoFromTuple(KeyBlockProcessInfo info, Relation rel, HeapTuple heapTuple)
+{
+    bool isNull;
+    TupleDesc tupleDesc = RelationGetDescr(rel);
+
+    info->key = TextDatumGetCString(heap_getattr(heapTuple, Anum_falcon_key_block_table_key, tupleDesc, &isNull));
+    info->size = DatumGetUInt64(heap_getattr(heapTuple, Anum_falcon_key_block_table_size, tupleDesc, &isNull));
+    info->offset = DatumGetUInt64(heap_getattr(heapTuple, Anum_falcon_key_block_table_offset, tupleDesc, &isNull));
+    info->atime = DatumGetTimestampTz(heap_getattr(heapTuple, Anum_falcon_key_block_table_atime, tupleDesc, &isNull));
+    info->mtime = DatumGetTimestampTz(heap_getattr(heapTuple, Anum_falcon_key_block_table_mtime, tupleDesc, &isNull));
+    info->ctime = DatumGetTimestampTz(heap_getattr(heapTuple, Anum_falcon_key_block_table_ctime, tupleDesc, &isNull));
+    info->version = DatumGetUInt64(heap_getattr(heapTuple, Anum_falcon_key_block_table_version, tupleDesc, &isNull));
+    info->state = DatumGetUInt32(heap_getattr(heapTuple, Anum_falcon_key_block_table_state, tupleDesc, &isNull));
+}
+
+static bool LoadSizeFileInfo(KeyBlockProcessInfo info, uint64_t size)
+{
+    SetUpScanCaches();
+
+    Relation sizeFileRel = table_open(GetRelationOidByName_FALCON(SizeFileTableName), AccessShareLock);
+    Oid sizeFileIndexOid = FalconTableIndexOid(SizeFileTableName);
+    TupleDesc tupleDesc = RelationGetDescr(sizeFileRel);
+
+    ScanKeyData scanKey[LAST_FALCON_SIZE_FILE_TABLE_SCANKEY_TYPE];
+    scanKey[SIZE_FILE_TABLE_SIZE_EQ] = SizeFileTableScanKey[SIZE_FILE_TABLE_SIZE_EQ];
+    scanKey[SIZE_FILE_TABLE_SIZE_EQ].sk_argument = UInt64GetDatum(size);
+
+    SysScanDesc scanDesc = systable_beginscan(sizeFileRel,
+                                              sizeFileIndexOid,
+                                              true,
+                                              GetTransactionSnapshot(),
+                                              LAST_FALCON_SIZE_FILE_TABLE_SCANKEY_TYPE,
+                                              scanKey);
+
+    HeapTuple heapTuple = systable_getnext(scanDesc);
+    if (!HeapTupleIsValid(heapTuple)) {
+        systable_endscan(scanDesc);
+        table_close(sizeFileRel, AccessShareLock);
+        return false;
+    }
+
+    bool isNull;
+    info->size = DatumGetUInt64(heap_getattr(heapTuple, Anum_falcon_size_file_table_size, tupleDesc, &isNull));
+    info->filePath = TextDatumGetCString(heap_getattr(heapTuple, Anum_falcon_size_file_table_file_path, tupleDesc, &isNull));
+    info->nextOffset = DatumGetUInt64(heap_getattr(heapTuple, Anum_falcon_size_file_table_next_offset, tupleDesc, &isNull));
+    info->capacity = DatumGetUInt64(heap_getattr(heapTuple, Anum_falcon_size_file_table_capacity, tupleDesc, &isNull));
+    info->state = DatumGetUInt32(heap_getattr(heapTuple, Anum_falcon_size_file_table_state, tupleDesc, &isNull));
+
+    systable_endscan(scanDesc);
+    table_close(sizeFileRel, AccessShareLock);
+    return true;
+}
+
+static void FalconBlockGetOrStatHandle(KeyBlockProcessInfo *infoArray, int count, bool updateAtime)
+{
+    SetUpScanCaches();
+
+    Relation keyBlockRel = table_open(GetRelationOidByName_FALCON(KeyBlockTableName),
+                                      updateAtime ? RowExclusiveLock : AccessShareLock);
+    Oid keyBlockIndexOid = FalconTableIndexOid(KeyBlockTableName);
+    TupleDesc tupleDesc = RelationGetDescr(keyBlockRel);
+
+    for (int i = 0; i < count; ++i) {
+        KeyBlockProcessInfo info = infoArray[i];
+        info->errorCode = SUCCESS;
+
+        ScanKeyData scanKey[1];
+        scanKey[0] = KeyBlockTableScanKey[KEY_BLOCK_TABLE_KEY_EQ];
+        scanKey[0].sk_argument = CStringGetTextDatum(info->key);
+
+        SysScanDesc scanDesc = systable_beginscan(keyBlockRel,
+                                                  keyBlockIndexOid,
+                                                  true,
+                                                  GetTransactionSnapshot(),
+                                                  1,
+                                                  scanKey);
+        HeapTuple heapTuple = systable_getnext(scanDesc);
+        if (!HeapTupleIsValid(heapTuple)) {
+            systable_endscan(scanDesc);
+            info->errorCode = FILE_NOT_EXISTS;
+            continue;
+        }
+
+        if (updateAtime) {
+            Datum values[Natts_falcon_key_block_table];
+            bool isNulls[Natts_falcon_key_block_table];
+            bool updates[Natts_falcon_key_block_table];
+            memset(values, 0, sizeof(values));
+            memset(isNulls, false, sizeof(isNulls));
+            memset(updates, false, sizeof(updates));
+            values[Anum_falcon_key_block_table_atime - 1] = TimestampTzGetDatum(GetCurrentTimestamp());
+            updates[Anum_falcon_key_block_table_atime - 1] = true;
+
+            HeapTuple updatedTuple = heap_modify_tuple(heapTuple, tupleDesc, values, isNulls, updates);
+            CatalogTupleUpdate(keyBlockRel, &updatedTuple->t_self, updatedTuple);
+            FillKeyBlockInfoFromTuple(info, keyBlockRel, updatedTuple);
+            heap_freetuple(updatedTuple);
+        } else {
+            FillKeyBlockInfoFromTuple(info, keyBlockRel, heapTuple);
+        }
+
+        systable_endscan(scanDesc);
+        if (!LoadSizeFileInfo(info, info->size)) {
+            info->errorCode = FILE_NOT_EXISTS;
+        }
+    }
+
+    table_close(keyBlockRel, updateAtime ? RowExclusiveLock : AccessShareLock);
+}
+
+void FalconBlockGetHandle(KeyBlockProcessInfo *infoArray, int count)
+{
+    FalconBlockGetOrStatHandle(infoArray, count, true);
+}
+
+void FalconBlockAllocHandle(KeyBlockProcessInfo *infoArray, int count)
+{
+    SetUpScanCaches();
+
+    Relation sizeFileRel = table_open(GetRelationOidByName_FALCON(SizeFileTableName), AccessExclusiveLock);
+    Oid sizeFileIndexOid = FalconTableIndexOid(SizeFileTableName);
+    TupleDesc tupleDesc = RelationGetDescr(sizeFileRel);
+
+    for (int i = 0; i < count; ++i) {
+        KeyBlockProcessInfo info = infoArray[i];
+        info->errorCode = SUCCESS;
+
+        ScanKeyData scanKey[LAST_FALCON_SIZE_FILE_TABLE_SCANKEY_TYPE];
+        scanKey[SIZE_FILE_TABLE_SIZE_EQ] = SizeFileTableScanKey[SIZE_FILE_TABLE_SIZE_EQ];
+        scanKey[SIZE_FILE_TABLE_SIZE_EQ].sk_argument = UInt64GetDatum(info->size);
+
+        SysScanDesc scanDesc = systable_beginscan(sizeFileRel,
+                                                  sizeFileIndexOid,
+                                                  true,
+                                                  GetTransactionSnapshot(),
+                                                  LAST_FALCON_SIZE_FILE_TABLE_SCANKEY_TYPE,
+                                                  scanKey);
+        HeapTuple heapTuple = systable_getnext(scanDesc);
+        if (!HeapTupleIsValid(heapTuple)) {
+            systable_endscan(scanDesc);
+            info->errorCode = FILE_NOT_EXISTS;
+            continue;
+        }
+
+        bool isNull;
+        info->filePath = TextDatumGetCString(heap_getattr(heapTuple,
+                                                          Anum_falcon_size_file_table_file_path,
+                                                          tupleDesc,
+                                                          &isNull));
+        info->nextOffset = DatumGetUInt64(heap_getattr(heapTuple,
+                                                       Anum_falcon_size_file_table_next_offset,
+                                                       tupleDesc,
+                                                       &isNull));
+        info->capacity = DatumGetUInt64(heap_getattr(heapTuple,
+                                                     Anum_falcon_size_file_table_capacity,
+                                                     tupleDesc,
+                                                     &isNull));
+        info->state = DatumGetUInt32(heap_getattr(heapTuple,
+                                                  Anum_falcon_size_file_table_state,
+                                                  tupleDesc,
+                                                  &isNull));
+        if (info->size == 0 || info->nextOffset > info->capacity || info->size > info->capacity - info->nextOffset) {
+            systable_endscan(scanDesc);
+            info->errorCode = IO_ERROR;
+            continue;
+        }
+
+        info->offset = info->nextOffset;
+        info->nextOffset += info->size;
+
+        Datum values[Natts_falcon_size_file_table];
+        bool isNulls[Natts_falcon_size_file_table];
+        bool updates[Natts_falcon_size_file_table];
+        memset(values, 0, sizeof(values));
+        memset(isNulls, false, sizeof(isNulls));
+        memset(updates, false, sizeof(updates));
+        values[Anum_falcon_size_file_table_next_offset - 1] = UInt64GetDatum(info->nextOffset);
+        values[Anum_falcon_size_file_table_update_time - 1] = TimestampTzGetDatum(GetCurrentTimestamp());
+        updates[Anum_falcon_size_file_table_next_offset - 1] = true;
+        updates[Anum_falcon_size_file_table_update_time - 1] = true;
+
+        HeapTuple updatedTuple = heap_modify_tuple(heapTuple, tupleDesc, values, isNulls, updates);
+        CatalogTupleUpdate(sizeFileRel, &updatedTuple->t_self, updatedTuple);
+        heap_freetuple(updatedTuple);
+        systable_endscan(scanDesc);
+    }
+
+    table_close(sizeFileRel, AccessExclusiveLock);
+}
+
+void FalconBlockInsertHandle(KeyBlockProcessInfo *infoArray, int count)
+{
+    MemoryContext oldcontext = CurrentMemoryContext;
+    Relation keyBlockRel = table_open(GetRelationOidByName_FALCON(KeyBlockTableName), RowExclusiveLock);
+    CatalogIndexState indexState = CatalogOpenIndexes(keyBlockRel);
+    TupleDesc tupleDesc = RelationGetDescr(keyBlockRel);
+
+    for (int i = 0; i < count; ++i) {
+        KeyBlockProcessInfo info = infoArray[i];
+        info->errorCode = SUCCESS;
+        if (info->key == NULL || info->size == 0 || !LoadSizeFileInfo(info, info->size)) {
+            info->errorCode = INVALID_PARAMETER;
+            continue;
+        }
+
+        PG_TRY();
+        {
+            TimestampTz now = GetCurrentTimestamp();
+            Datum values[Natts_falcon_key_block_table];
+            bool isNulls[Natts_falcon_key_block_table];
+            memset(values, 0, sizeof(values));
+            memset(isNulls, false, sizeof(isNulls));
+
+            values[Anum_falcon_key_block_table_key - 1] = CStringGetTextDatum(info->key);
+            values[Anum_falcon_key_block_table_size - 1] = UInt64GetDatum(info->size);
+            values[Anum_falcon_key_block_table_offset - 1] = UInt64GetDatum(info->offset);
+            values[Anum_falcon_key_block_table_atime - 1] = TimestampTzGetDatum(now);
+            values[Anum_falcon_key_block_table_mtime - 1] = TimestampTzGetDatum(now);
+            values[Anum_falcon_key_block_table_ctime - 1] = TimestampTzGetDatum(now);
+            values[Anum_falcon_key_block_table_version - 1] = UInt64GetDatum(1);
+            values[Anum_falcon_key_block_table_state - 1] = UInt32GetDatum(0);
+
+            HeapTuple heapTuple = heap_form_tuple(tupleDesc, values, isNulls);
+            CatalogTupleInsertWithInfo(keyBlockRel, heapTuple, indexState);
+            heap_freetuple(heapTuple);
+        }
+        PG_CATCH();
+        {
+            MemoryContextSwitchTo(oldcontext);
+            ErrorData *errorData = CopyErrorData();
+            FlushErrorState();
+            info->errorCode = errorData->sqlerrcode == ERRCODE_UNIQUE_VIOLATION ? FILE_EXISTS : UNKNOWN;
+            FreeErrorData(errorData);
+        }
+        PG_END_TRY();
+    }
+
+    CatalogCloseIndexes(indexState);
+    table_close(keyBlockRel, RowExclusiveLock);
+}
+
+void FalconBlockUpdateHandle(KeyBlockProcessInfo *infoArray, int count)
+{
+    SetUpScanCaches();
+
+    Relation keyBlockRel = table_open(GetRelationOidByName_FALCON(KeyBlockTableName), RowExclusiveLock);
+    Oid keyBlockIndexOid = FalconTableIndexOid(KeyBlockTableName);
+    TupleDesc tupleDesc = RelationGetDescr(keyBlockRel);
+
+    for (int i = 0; i < count; ++i) {
+        KeyBlockProcessInfo info = infoArray[i];
+        info->errorCode = SUCCESS;
+
+        ScanKeyData scanKey[1];
+        scanKey[0] = KeyBlockTableScanKey[KEY_BLOCK_TABLE_KEY_EQ];
+        scanKey[0].sk_argument = CStringGetTextDatum(info->key);
+
+        SysScanDesc scanDesc = systable_beginscan(keyBlockRel,
+                                                  keyBlockIndexOid,
+                                                  true,
+                                                  GetTransactionSnapshot(),
+                                                  1,
+                                                  scanKey);
+        HeapTuple heapTuple = systable_getnext(scanDesc);
+        if (!HeapTupleIsValid(heapTuple)) {
+            systable_endscan(scanDesc);
+            info->errorCode = FILE_NOT_EXISTS;
+            continue;
+        }
+
+        bool isNull;
+        uint64_t version = DatumGetUInt64(heap_getattr(heapTuple,
+                                                       Anum_falcon_key_block_table_version,
+                                                       tupleDesc,
+                                                       &isNull));
+        TimestampTz now = GetCurrentTimestamp();
+        Datum values[Natts_falcon_key_block_table];
+        bool isNulls[Natts_falcon_key_block_table];
+        bool updates[Natts_falcon_key_block_table];
+        memset(values, 0, sizeof(values));
+        memset(isNulls, false, sizeof(isNulls));
+        memset(updates, false, sizeof(updates));
+        values[Anum_falcon_key_block_table_mtime - 1] = TimestampTzGetDatum(now);
+        values[Anum_falcon_key_block_table_ctime - 1] = TimestampTzGetDatum(now);
+        values[Anum_falcon_key_block_table_version - 1] = UInt64GetDatum(version + 1);
+        updates[Anum_falcon_key_block_table_mtime - 1] = true;
+        updates[Anum_falcon_key_block_table_ctime - 1] = true;
+        updates[Anum_falcon_key_block_table_version - 1] = true;
+
+        HeapTuple updatedTuple = heap_modify_tuple(heapTuple, tupleDesc, values, isNulls, updates);
+        CatalogTupleUpdate(keyBlockRel, &updatedTuple->t_self, updatedTuple);
+        heap_freetuple(updatedTuple);
+        systable_endscan(scanDesc);
+    }
+
+    table_close(keyBlockRel, RowExclusiveLock);
+}
+
+void FalconBlockAbortAllocHandle(KeyBlockProcessInfo *infoArray, int count)
+{
+    SetUpScanCaches();
+
+    Relation sizeFileRel = table_open(GetRelationOidByName_FALCON(SizeFileTableName), AccessExclusiveLock);
+    Oid sizeFileIndexOid = FalconTableIndexOid(SizeFileTableName);
+    TupleDesc tupleDesc = RelationGetDescr(sizeFileRel);
+
+    for (int i = 0; i < count; ++i) {
+        KeyBlockProcessInfo info = infoArray[i];
+        info->errorCode = SUCCESS;
+
+        ScanKeyData scanKey[LAST_FALCON_SIZE_FILE_TABLE_SCANKEY_TYPE];
+        scanKey[SIZE_FILE_TABLE_SIZE_EQ] = SizeFileTableScanKey[SIZE_FILE_TABLE_SIZE_EQ];
+        scanKey[SIZE_FILE_TABLE_SIZE_EQ].sk_argument = UInt64GetDatum(info->size);
+
+        SysScanDesc scanDesc = systable_beginscan(sizeFileRel,
+                                                  sizeFileIndexOid,
+                                                  true,
+                                                  GetTransactionSnapshot(),
+                                                  LAST_FALCON_SIZE_FILE_TABLE_SCANKEY_TYPE,
+                                                  scanKey);
+        HeapTuple heapTuple = systable_getnext(scanDesc);
+        if (!HeapTupleIsValid(heapTuple)) {
+            systable_endscan(scanDesc);
+            info->errorCode = FILE_NOT_EXISTS;
+            continue;
+        }
+
+        bool isNull;
+        uint64_t nextOffset = DatumGetUInt64(heap_getattr(heapTuple,
+                                                          Anum_falcon_size_file_table_next_offset,
+                                                          tupleDesc,
+                                                          &isNull));
+        if (info->size != 0 && info->offset <= UINT64_MAX - info->size && info->offset + info->size == nextOffset) {
+            Datum values[Natts_falcon_size_file_table];
+            bool isNulls[Natts_falcon_size_file_table];
+            bool updates[Natts_falcon_size_file_table];
+            memset(values, 0, sizeof(values));
+            memset(isNulls, false, sizeof(isNulls));
+            memset(updates, false, sizeof(updates));
+            values[Anum_falcon_size_file_table_next_offset - 1] = UInt64GetDatum(info->offset);
+            values[Anum_falcon_size_file_table_update_time - 1] = TimestampTzGetDatum(GetCurrentTimestamp());
+            updates[Anum_falcon_size_file_table_next_offset - 1] = true;
+            updates[Anum_falcon_size_file_table_update_time - 1] = true;
+
+            HeapTuple updatedTuple = heap_modify_tuple(heapTuple, tupleDesc, values, isNulls, updates);
+            CatalogTupleUpdate(sizeFileRel, &updatedTuple->t_self, updatedTuple);
+            heap_freetuple(updatedTuple);
+        }
+        systable_endscan(scanDesc);
+    }
+
+    table_close(sizeFileRel, AccessExclusiveLock);
+}
+
+void FalconBlockDelHandle(KeyBlockProcessInfo *infoArray, int count)
+{
+    SetUpScanCaches();
+
+    Relation keyBlockRel = table_open(GetRelationOidByName_FALCON(KeyBlockTableName), RowExclusiveLock);
+    Oid keyBlockIndexOid = FalconTableIndexOid(KeyBlockTableName);
+
+    for (int i = 0; i < count; ++i) {
+        KeyBlockProcessInfo info = infoArray[i];
+        info->errorCode = SUCCESS;
+
+        ScanKeyData scanKey[1];
+        scanKey[0] = KeyBlockTableScanKey[KEY_BLOCK_TABLE_KEY_EQ];
+        scanKey[0].sk_argument = CStringGetTextDatum(info->key);
+
+        SysScanDesc scanDesc = systable_beginscan(keyBlockRel,
+                                                  keyBlockIndexOid,
+                                                  true,
+                                                  GetTransactionSnapshot(),
+                                                  1,
+                                                  scanKey);
+        HeapTuple heapTuple = systable_getnext(scanDesc);
+        if (!HeapTupleIsValid(heapTuple)) {
+            systable_endscan(scanDesc);
+            info->errorCode = FILE_NOT_EXISTS;
+            continue;
+        }
+
+        FillKeyBlockInfoFromTuple(info, keyBlockRel, heapTuple);
+        CatalogTupleDelete(keyBlockRel, &heapTuple->t_self);
+        systable_endscan(scanDesc);
+    }
+
+    table_close(keyBlockRel, RowExclusiveLock);
+}
+
+void FalconBlockStatHandle(KeyBlockProcessInfo *infoArray, int count)
+{
+    FalconBlockGetOrStatHandle(infoArray, count, false);
+}
+
+void FalconSizeFileCreateHandle(KeyBlockProcessInfo *infoArray, int count)
+{
+    MemoryContext oldcontext = CurrentMemoryContext;
+    Relation sizeFileRel = table_open(GetRelationOidByName_FALCON(SizeFileTableName), RowExclusiveLock);
+    CatalogIndexState indexState = CatalogOpenIndexes(sizeFileRel);
+    TupleDesc tupleDesc = RelationGetDescr(sizeFileRel);
+
+    for (int i = 0; i < count; ++i) {
+        KeyBlockProcessInfo info = infoArray[i];
+        info->errorCode = SUCCESS;
+        if (info->size == 0 || info->capacity < info->size) {
+            info->errorCode = INVALID_PARAMETER;
+            continue;
+        }
+
+        PG_TRY();
+        {
+            TimestampTz now = GetCurrentTimestamp();
+            info->filePath = psprintf("data_" UINT64_PRINT_SYMBOL ".dat", info->size);
+
+            Datum values[Natts_falcon_size_file_table];
+            bool isNulls[Natts_falcon_size_file_table];
+            memset(values, 0, sizeof(values));
+            memset(isNulls, false, sizeof(isNulls));
+            values[Anum_falcon_size_file_table_size - 1] = UInt64GetDatum(info->size);
+            values[Anum_falcon_size_file_table_file_path - 1] = CStringGetTextDatum(info->filePath);
+            values[Anum_falcon_size_file_table_next_offset - 1] = UInt64GetDatum(0);
+            values[Anum_falcon_size_file_table_capacity - 1] = UInt64GetDatum(info->capacity);
+            values[Anum_falcon_size_file_table_state - 1] = UInt32GetDatum(0);
+            values[Anum_falcon_size_file_table_create_time - 1] = TimestampTzGetDatum(now);
+            values[Anum_falcon_size_file_table_update_time - 1] = TimestampTzGetDatum(now);
+
+            HeapTuple heapTuple = heap_form_tuple(tupleDesc, values, isNulls);
+            CatalogTupleInsertWithInfo(sizeFileRel, heapTuple, indexState);
+            heap_freetuple(heapTuple);
+        }
+        PG_CATCH();
+        {
+            MemoryContextSwitchTo(oldcontext);
+            ErrorData *errorData = CopyErrorData();
+            FlushErrorState();
+            info->errorCode = errorData->sqlerrcode == ERRCODE_UNIQUE_VIOLATION ? FILE_EXISTS : UNKNOWN;
+            FreeErrorData(errorData);
+        }
+        PG_END_TRY();
+    }
+
+    CatalogCloseIndexes(indexState);
+    table_close(sizeFileRel, RowExclusiveLock);
+}
+
+void FalconSizeFileStatHandle(KeyBlockProcessInfo *infoArray, int count)
+{
+    for (int i = 0; i < count; ++i) {
+        KeyBlockProcessInfo info = infoArray[i];
+        info->errorCode = SUCCESS;
+        if (!LoadSizeFileInfo(info, info->size)) {
+            info->errorCode = FILE_NOT_EXISTS;
+        }
+    }
 }

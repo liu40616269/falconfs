@@ -119,6 +119,28 @@ table SliceIdParam {
     count: uint32;
     type: uint8;
 }
+table BlockKeyParam {
+    key: string;
+}
+table BlockAllocParam {
+    size: uint64;
+}
+table BlockInsertParam {
+    key: string;
+    size: uint64;
+    offset: uint64;
+}
+table BlockUpdateParam {
+    key: string;
+}
+table BlockAbortAllocParam {
+    size: uint64;
+    offset: uint64;
+}
+table SizeFileCreateParam {
+    size: uint64;
+    capacity: uint64;
+}
 union AnyMetaParam {
     PlainCommandParam,
     PathOnlyParam,
@@ -138,7 +160,13 @@ union AnyMetaParam {
     KeyOnlyParam,
     SliceInfoParam,
     SliceIndexParam,
-    SliceIdParam
+    SliceIdParam,
+    BlockKeyParam,
+    BlockAllocParam,
+    BlockInsertParam,
+    BlockUpdateParam,
+    BlockAbortAllocParam,
+    SizeFileCreateParam
 }
 table MetaParam {
     param: AnyMetaParam;

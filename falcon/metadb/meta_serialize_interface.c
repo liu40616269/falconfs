@@ -249,6 +249,74 @@ static SerializedData SliceIdProcess(char *paramBuffer)
     return response;
 }
 
+static SerializedData KeyBlockMetaProcess(FalconSupportMetaService metaService, int count, char *paramBuffer)
+{
+    SerializedData param;
+
+    if (!SerializedDataInit(&param, paramBuffer, SD_SIZE_T_MAX, SD_SIZE_T_MAX, NULL))
+        FALCON_ELOG_ERROR(ARGUMENT_ERROR, "SerializedDataInit failed.");
+
+    void *data = palloc((sizeof(KeyBlockProcessInfoData) + sizeof(KeyBlockProcessInfo)) * count);
+    KeyBlockProcessInfoData *infoDataArray = data;
+    KeyBlockProcessInfo *infoArray = (KeyBlockProcessInfo *)(infoDataArray + count);
+    if (!SerializedKeyBlockParamDecode(metaService, count, &param, infoDataArray))
+        FALCON_ELOG_ERROR(ARGUMENT_ERROR, "serialized param is corrupt.");
+
+    for (int i = 0; i < count; i++) {
+        infoArray[i] = infoDataArray + i;
+        infoDataArray[i].statArrayIndex = -1;
+    }
+    for (int i = 0; i < count && i < g_currentStatIndicesCount; i++) {
+        infoArray[i]->statArrayIndex = g_currentStatIndices[i];
+        STAT_CKPT(g_currentStatIndices[i], CKPT_PARAM_DECODE);
+    }
+
+    switch (metaService) {
+        case BLOCK_GET:
+            FalconBlockGetHandle(infoArray, count);
+            break;
+        case BLOCK_ALLOC:
+            FalconBlockAllocHandle(infoArray, count);
+            break;
+        case BLOCK_INSERT:
+            FalconBlockInsertHandle(infoArray, count);
+            break;
+        case BLOCK_UPDATE:
+            FalconBlockUpdateHandle(infoArray, count);
+            break;
+        case BLOCK_ABORT_ALLOC:
+            FalconBlockAbortAllocHandle(infoArray, count);
+            break;
+        case BLOCK_DEL:
+            FalconBlockDelHandle(infoArray, count);
+            break;
+        case BLOCK_STAT:
+            FalconBlockStatHandle(infoArray, count);
+            break;
+        case SIZE_FILE_CREATE:
+            FalconSizeFileCreateHandle(infoArray, count);
+            break;
+        case SIZE_FILE_STAT:
+            FalconSizeFileStatHandle(infoArray, count);
+            break;
+        default:
+            FALCON_ELOG_ERROR_EXTENDED(ARGUMENT_ERROR, "unexpected metaService: %d", metaService);
+    }
+
+    SerializedData response;
+    SerializedDataInit(&response, NULL, 0, 0, &PgMemoryManager);
+    if (!SerializedKeyBlockResponseEncodeWithPerProcessFlatBufferBuilder(metaService, count, infoDataArray, &response))
+        FALCON_ELOG_ERROR(ARGUMENT_ERROR, "failed when serializing response.");
+
+    for (int i = 0; i < count && i < g_currentStatIndicesCount; i++) {
+        int32_t si = g_currentStatIndices[i];
+        if (si >= 0 && g_FalconPerRequestStatShmem != NULL)
+            StatCheckpoint(si, g_FalconPerRequestStatShmem->statArray[si].checkpointCount);
+    }
+
+    return response;
+}
+
 static SerializedData MetaProcess(FalconSupportMetaService metaService, int count, char *paramBuffer)
 {
     if (metaService >= PLAIN_COMMAND && metaService <= CHMOD) {
@@ -265,6 +333,10 @@ static SerializedData MetaProcess(FalconSupportMetaService metaService, int coun
 
     if (metaService == FETCH_SLICE_ID) {
         return SliceIdProcess(paramBuffer);
+    }
+
+    if (metaService >= BLOCK_GET && metaService <= SIZE_FILE_STAT) {
+        return KeyBlockMetaProcess(metaService, count, paramBuffer);
     }
 
     FALCON_ELOG_ERROR_EXTENDED(ARGUMENT_ERROR, "metaService %d doesn't support operation.", metaService);

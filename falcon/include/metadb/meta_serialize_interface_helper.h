@@ -59,6 +59,16 @@ bool SerializedSliceIdParamDecode(SerializedData *param, SliceIdProcessInfo info
 
 bool SerializedSliceIdResponseEncodeWithPerProcessFlatBufferBuilder(SliceIdProcessInfo infoData, SerializedData *response);
 
+bool SerializedKeyBlockParamDecode(FalconSupportMetaService metaService,
+                                   int count,
+                                   SerializedData *param,
+                                   KeyBlockProcessInfoData *infoArray);
+
+bool SerializedKeyBlockResponseEncodeWithPerProcessFlatBufferBuilder(FalconSupportMetaService metaService,
+                                                                     int count,
+                                                                     KeyBlockProcessInfoData *infoArray,
+                                                                     SerializedData *response);
+
 #ifdef __cplusplus
 }
 #endif

@@ -61,6 +61,21 @@ inline falcon::meta_fbs::AnyMetaParam ToFlatBuffersType(falcon::meta_proto::Meta
         return falcon::meta_fbs::AnyMetaParam_SliceIndexParam;
     case falcon::meta_proto::FETCH_SLICE_ID:
         return falcon::meta_fbs::AnyMetaParam_SliceIdParam;
+    case falcon::meta_proto::BLOCK_GET:
+    case falcon::meta_proto::BLOCK_DEL:
+    case falcon::meta_proto::BLOCK_STAT:
+        return falcon::meta_fbs::AnyMetaParam_BlockKeyParam;
+    case falcon::meta_proto::BLOCK_ALLOC:
+    case falcon::meta_proto::SIZE_FILE_STAT:
+        return falcon::meta_fbs::AnyMetaParam_BlockAllocParam;
+    case falcon::meta_proto::BLOCK_INSERT:
+        return falcon::meta_fbs::AnyMetaParam_BlockInsertParam;
+    case falcon::meta_proto::BLOCK_UPDATE:
+        return falcon::meta_fbs::AnyMetaParam_BlockUpdateParam;
+    case falcon::meta_proto::BLOCK_ABORT_ALLOC:
+        return falcon::meta_fbs::AnyMetaParam_BlockAbortAllocParam;
+    case falcon::meta_proto::SIZE_FILE_CREATE:
+        return falcon::meta_fbs::AnyMetaParam_SizeFileCreateParam;
     default:
         throw std::runtime_error("Unknown service type");
     }
@@ -96,7 +111,10 @@ FalconErrorCode Connection::ProcessRequest(falcon::meta_proto::MetaServiceType p
         proto_type == falcon::meta_proto::CLOSE || proto_type == falcon::meta_proto::UNLINK ||
         proto_type == falcon::meta_proto::KV_PUT || proto_type == falcon::meta_proto::KV_GET ||
         proto_type == falcon::meta_proto::KV_DEL || proto_type == falcon::meta_proto::SLICE_PUT ||
-        proto_type == falcon::meta_proto::SLICE_GET || proto_type == falcon::meta_proto::SLICE_DEL) {
+        proto_type == falcon::meta_proto::SLICE_GET || proto_type == falcon::meta_proto::SLICE_DEL ||
+        proto_type == falcon::meta_proto::BLOCK_GET || proto_type == falcon::meta_proto::BLOCK_INSERT ||
+        proto_type == falcon::meta_proto::BLOCK_UPDATE || proto_type == falcon::meta_proto::BLOCK_DEL ||
+        proto_type == falcon::meta_proto::BLOCK_STAT) {
         request.set_allow_batch_with_others(ALLOW_BATCH_WITH_OTHERS);
     }
     brpc::Controller cntl;
@@ -542,6 +560,163 @@ FalconErrorCode Connection::KvDel(const char *key, ConnectionCache *cache)
     };
 
     return ProcessRequest(falcon::meta_proto::KV_DEL, paramBuilder, responseHandler, cache);
+}
+
+static FalconErrorCode FillBlockLocationResult(const falcon::meta_fbs::MetaResponse *metaResponse,
+                                               Connection::BlockLocationResult *result)
+{
+    if (metaResponse->response_type() != falcon::meta_fbs::AnyMetaResponse_BlockLocationResponse) {
+        return PROGRAM_ERROR;
+    }
+
+    auto blockResponse = metaResponse->response_as_BlockLocationResponse();
+    result->key = blockResponse->key() ? blockResponse->key()->str() : "";
+    result->size = blockResponse->size();
+    result->offset = blockResponse->offset();
+    result->filePath = blockResponse->file_path() ? blockResponse->file_path()->str() : "";
+    result->atime = blockResponse->atime();
+    result->mtime = blockResponse->mtime();
+    result->ctime = blockResponse->ctime();
+    result->version = blockResponse->version();
+    result->state = blockResponse->state();
+    return static_cast<FalconErrorCode>(metaResponse->error_code());
+}
+
+FalconErrorCode Connection::BlockGet(const char *key, BlockLocationResult &result, ConnectionCache *cache)
+{
+    auto paramBuilder = [key](flatbuffers::FlatBufferBuilder &builder) {
+        return falcon::meta_fbs::CreateBlockKeyParamDirect(builder, key);
+    };
+
+    return ProcessRequest(falcon::meta_proto::BLOCK_GET,
+                          paramBuilder,
+                          FillBlockLocationResult,
+                          cache,
+                          &result);
+}
+
+FalconErrorCode Connection::BlockAlloc(uint64_t size, BlockLocationResult &result, ConnectionCache *cache)
+{
+    auto paramBuilder = [size](flatbuffers::FlatBufferBuilder &builder) {
+        return falcon::meta_fbs::CreateBlockAllocParam(builder, size);
+    };
+
+    return ProcessRequest(falcon::meta_proto::BLOCK_ALLOC,
+                          paramBuilder,
+                          FillBlockLocationResult,
+                          cache,
+                          &result);
+}
+
+FalconErrorCode Connection::BlockInsert(const char *key, uint64_t size, uint64_t offset, ConnectionCache *cache)
+{
+    auto paramBuilder = [key, size, offset](flatbuffers::FlatBufferBuilder &builder) {
+        return falcon::meta_fbs::CreateBlockInsertParamDirect(builder, key, size, offset);
+    };
+
+    auto responseHandler = [](const falcon::meta_fbs::MetaResponse *metaResponse, void *) {
+        return metaResponse->error_code() < LAST_FALCON_ERROR_CODE
+                   ? static_cast<FalconErrorCode>(metaResponse->error_code())
+                   : PROGRAM_ERROR;
+    };
+
+    return ProcessRequest(falcon::meta_proto::BLOCK_INSERT, paramBuilder, responseHandler, cache);
+}
+
+FalconErrorCode Connection::BlockUpdate(const char *key, ConnectionCache *cache)
+{
+    auto paramBuilder = [key](flatbuffers::FlatBufferBuilder &builder) {
+        return falcon::meta_fbs::CreateBlockUpdateParamDirect(builder, key);
+    };
+
+    auto responseHandler = [](const falcon::meta_fbs::MetaResponse *metaResponse, void *) {
+        return metaResponse->error_code() < LAST_FALCON_ERROR_CODE
+                   ? static_cast<FalconErrorCode>(metaResponse->error_code())
+                   : PROGRAM_ERROR;
+    };
+
+    return ProcessRequest(falcon::meta_proto::BLOCK_UPDATE, paramBuilder, responseHandler, cache);
+}
+
+FalconErrorCode Connection::BlockAbortAlloc(uint64_t size, uint64_t offset, ConnectionCache *cache)
+{
+    auto paramBuilder = [size, offset](flatbuffers::FlatBufferBuilder &builder) {
+        return falcon::meta_fbs::CreateBlockAbortAllocParam(builder, size, offset);
+    };
+
+    auto responseHandler = [](const falcon::meta_fbs::MetaResponse *metaResponse, void *) {
+        return metaResponse->error_code() < LAST_FALCON_ERROR_CODE
+                   ? static_cast<FalconErrorCode>(metaResponse->error_code())
+                   : PROGRAM_ERROR;
+    };
+
+    return ProcessRequest(falcon::meta_proto::BLOCK_ABORT_ALLOC, paramBuilder, responseHandler, cache);
+}
+
+FalconErrorCode Connection::BlockDel(const char *key, ConnectionCache *cache)
+{
+    auto paramBuilder = [key](flatbuffers::FlatBufferBuilder &builder) {
+        return falcon::meta_fbs::CreateBlockKeyParamDirect(builder, key);
+    };
+
+    auto responseHandler = [](const falcon::meta_fbs::MetaResponse *metaResponse, void *) {
+        return metaResponse->error_code() < LAST_FALCON_ERROR_CODE
+                   ? static_cast<FalconErrorCode>(metaResponse->error_code())
+                   : PROGRAM_ERROR;
+    };
+
+    return ProcessRequest(falcon::meta_proto::BLOCK_DEL, paramBuilder, responseHandler, cache);
+}
+
+FalconErrorCode Connection::BlockStat(const char *key, BlockLocationResult &result, ConnectionCache *cache)
+{
+    auto paramBuilder = [key](flatbuffers::FlatBufferBuilder &builder) {
+        return falcon::meta_fbs::CreateBlockKeyParamDirect(builder, key);
+    };
+
+    return ProcessRequest(falcon::meta_proto::BLOCK_STAT,
+                          paramBuilder,
+                          FillBlockLocationResult,
+                          cache,
+                          &result);
+}
+
+FalconErrorCode Connection::SizeFileCreate(uint64_t size, uint64_t capacity, ConnectionCache *cache)
+{
+    auto paramBuilder = [size, capacity](flatbuffers::FlatBufferBuilder &builder) {
+        return falcon::meta_fbs::CreateSizeFileCreateParam(builder, size, capacity);
+    };
+
+    auto responseHandler = [](const falcon::meta_fbs::MetaResponse *metaResponse, void *) {
+        return metaResponse->error_code() < LAST_FALCON_ERROR_CODE
+                   ? static_cast<FalconErrorCode>(metaResponse->error_code())
+                   : PROGRAM_ERROR;
+    };
+
+    return ProcessRequest(falcon::meta_proto::SIZE_FILE_CREATE, paramBuilder, responseHandler, cache);
+}
+
+FalconErrorCode Connection::SizeFileStat(uint64_t size, SizeFileResult &result, ConnectionCache *cache)
+{
+    auto paramBuilder = [size](flatbuffers::FlatBufferBuilder &builder) {
+        return falcon::meta_fbs::CreateBlockAllocParam(builder, size);
+    };
+
+    auto responseHandler = [](const falcon::meta_fbs::MetaResponse *metaResponse, SizeFileResult *result) {
+        if (metaResponse->response_type() != falcon::meta_fbs::AnyMetaResponse_SizeFileResponse) {
+            return PROGRAM_ERROR;
+        }
+
+        auto sizeFileResponse = metaResponse->response_as_SizeFileResponse();
+        result->size = sizeFileResponse->size();
+        result->filePath = sizeFileResponse->file_path() ? sizeFileResponse->file_path()->str() : "";
+        result->nextOffset = sizeFileResponse->next_offset();
+        result->capacity = sizeFileResponse->capacity();
+        result->state = sizeFileResponse->state();
+        return static_cast<FalconErrorCode>(metaResponse->error_code());
+    };
+
+    return ProcessRequest(falcon::meta_proto::SIZE_FILE_STAT, paramBuilder, responseHandler, cache, &result);
 }
 
 // Slice Operations

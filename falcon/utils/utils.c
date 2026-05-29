@@ -36,7 +36,9 @@
 #include "dir_path_shmem/dir_path_hash.h"
 #include "metadb/directory_table.h"
 #include "metadb/inode_table.h"
+#include "metadb/key_block_table.h"
 #include "metadb/shard_table.h"
+#include "metadb/size_file_table.h"
 #include "metadb/xattr_table.h"
 #include "utils/error_log.h"
 
@@ -96,6 +98,8 @@ static void InitializeXattrTableScanCache(void);
 static void InitializeSliceTableScanCache(void);
 static void InitializeKvmetaTableScanCache(void);
 static void InitializeSliceIdTableScanCache(void);
+static void InitializeKeyBlockTableScanCache(void);
+static void InitializeSizeFileTableScanCache(void);
 
 static MemoryContext ScanCacheMemoryContext = NULL;
 
@@ -293,6 +297,42 @@ static void InitializeSliceIdTableScanCache(void)
     SliceIdTableScanKey[SLICEID_TABLE_SLICEID_EQ].sk_attno = Anum_falcon_sliceid_table_keystr;
 }
 
+ScanKeyData KeyBlockTableScanKey[LAST_FALCON_KEY_BLOCK_TABLE_SCANKEY_TYPE];
+static void InitializeKeyBlockTableScanCache(void)
+{
+    memset(KeyBlockTableScanKey, 0, sizeof(KeyBlockTableScanKey));
+
+    fmgr_info_cxt(F_TEXTEQ, &KeyBlockTableScanKey[KEY_BLOCK_TABLE_KEY_EQ].sk_func, ScanCacheMemoryContext);
+    KeyBlockTableScanKey[KEY_BLOCK_TABLE_KEY_EQ].sk_strategy = BTEqualStrategyNumber;
+    KeyBlockTableScanKey[KEY_BLOCK_TABLE_KEY_EQ].sk_subtype = TEXTOID;
+    KeyBlockTableScanKey[KEY_BLOCK_TABLE_KEY_EQ].sk_collation = DEFAULT_COLLATION_OID;
+    KeyBlockTableScanKey[KEY_BLOCK_TABLE_KEY_EQ].sk_attno = Anum_falcon_key_block_table_key;
+
+    fmgr_info_cxt(F_INT8EQ, &KeyBlockTableScanKey[KEY_BLOCK_TABLE_SIZE_EQ].sk_func, ScanCacheMemoryContext);
+    KeyBlockTableScanKey[KEY_BLOCK_TABLE_SIZE_EQ].sk_strategy = BTEqualStrategyNumber;
+    KeyBlockTableScanKey[KEY_BLOCK_TABLE_SIZE_EQ].sk_subtype = INT8OID;
+    KeyBlockTableScanKey[KEY_BLOCK_TABLE_SIZE_EQ].sk_collation = DEFAULT_COLLATION_OID;
+    KeyBlockTableScanKey[KEY_BLOCK_TABLE_SIZE_EQ].sk_attno = Anum_falcon_key_block_table_size;
+
+    fmgr_info_cxt(F_INT8EQ, &KeyBlockTableScanKey[KEY_BLOCK_TABLE_OFFSET_EQ].sk_func, ScanCacheMemoryContext);
+    KeyBlockTableScanKey[KEY_BLOCK_TABLE_OFFSET_EQ].sk_strategy = BTEqualStrategyNumber;
+    KeyBlockTableScanKey[KEY_BLOCK_TABLE_OFFSET_EQ].sk_subtype = INT8OID;
+    KeyBlockTableScanKey[KEY_BLOCK_TABLE_OFFSET_EQ].sk_collation = DEFAULT_COLLATION_OID;
+    KeyBlockTableScanKey[KEY_BLOCK_TABLE_OFFSET_EQ].sk_attno = Anum_falcon_key_block_table_offset;
+}
+
+ScanKeyData SizeFileTableScanKey[LAST_FALCON_SIZE_FILE_TABLE_SCANKEY_TYPE];
+static void InitializeSizeFileTableScanCache(void)
+{
+    memset(SizeFileTableScanKey, 0, sizeof(SizeFileTableScanKey));
+
+    fmgr_info_cxt(F_INT8EQ, &SizeFileTableScanKey[SIZE_FILE_TABLE_SIZE_EQ].sk_func, ScanCacheMemoryContext);
+    SizeFileTableScanKey[SIZE_FILE_TABLE_SIZE_EQ].sk_strategy = BTEqualStrategyNumber;
+    SizeFileTableScanKey[SIZE_FILE_TABLE_SIZE_EQ].sk_subtype = INT8OID;
+    SizeFileTableScanKey[SIZE_FILE_TABLE_SIZE_EQ].sk_collation = DEFAULT_COLLATION_OID;
+    SizeFileTableScanKey[SIZE_FILE_TABLE_SIZE_EQ].sk_attno = Anum_falcon_size_file_table_size;
+}
+
 /*
  * InitializeInvalidationCallbacks() registers invalidation handlers
  */
@@ -327,6 +367,8 @@ void SetUpScanCaches(void)
             InitializeSliceTableScanCache();
             InitializeKvmetaTableScanCache();
             InitializeSliceIdTableScanCache();
+            InitializeKeyBlockTableScanCache();
+            InitializeSizeFileTableScanCache();
         }
         PG_CATCH();
         {

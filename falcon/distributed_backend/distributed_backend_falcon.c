@@ -7,6 +7,8 @@
 #include "executor/spi.h"
 
 #include "metadb/inode_table.h"
+#include "metadb/key_block_table.h"
+#include "metadb/size_file_table.h"
 #include "metadb/shard_table.h"
 #include "metadb/xattr_table.h"
 #include "utils/error_log.h"
@@ -17,6 +19,7 @@ PG_FUNCTION_INFO_V1(falcon_create_distributed_data_table_by_range_point);
 PG_FUNCTION_INFO_V1(falcon_drop_distributed_data_table_by_range_point);
 PG_FUNCTION_INFO_V1(falcon_create_slice_table);
 PG_FUNCTION_INFO_V1(falcon_create_kvmeta_table);
+PG_FUNCTION_INFO_V1(falcon_create_key_block_table);
 PG_FUNCTION_INFO_V1(falcon_prepare_commands);
 
 Datum falcon_create_distributed_data_table(PG_FUNCTION_ARGS)
@@ -53,6 +56,13 @@ Datum falcon_create_slice_table(PG_FUNCTION_ARGS)
 Datum falcon_create_kvmeta_table(PG_FUNCTION_ARGS)
 {
     FalconCreateKvmetaTable();
+
+    PG_RETURN_INT16(SUCCESS);
+}
+
+Datum falcon_create_key_block_table(PG_FUNCTION_ARGS)
+{
+    FalconCreateKeyBlockTable();
 
     PG_RETURN_INT16(SUCCESS);
 }
@@ -205,6 +215,35 @@ void FalconCreateKvmetaTable()
     }
     if (toExecCommand->len == 0)
         return;
+
+    int spiConnectionResult = SPI_connect();
+    if (spiConnectionResult != SPI_OK_CONNECT) {
+        SPI_finish();
+        FALCON_ELOG_ERROR(PROGRAM_ERROR, "could not connect to SPI manager.");
+    }
+
+    int spiQueryResult = SPI_execute(toExecCommand->data, false, 0);
+    if (spiQueryResult != SPI_OK_UTILITY) {
+        SPI_finish();
+        FALCON_ELOG_ERROR(PROGRAM_ERROR, "spi exec failed.");
+    }
+    SPI_finish();
+}
+
+void FalconCreateKeyBlockTable()
+{
+    StringInfo toExecCommand = makeStringInfo();
+
+    if (!CheckIfRelationExists(SizeFileTableName, PG_CATALOG_NAMESPACE)) {
+        ConstructCreateSizeFileTableCommand(toExecCommand, SizeFileTableName);
+    }
+    if (!CheckIfRelationExists(KeyBlockTableName, PG_CATALOG_NAMESPACE)) {
+        ConstructCreateKeyBlockTableCommand(toExecCommand, KeyBlockTableName);
+    }
+
+    if (toExecCommand->len == 0) {
+        return;
+    }
 
     int spiConnectionResult = SPI_connect();
     if (spiConnectionResult != SPI_OK_CONNECT) {

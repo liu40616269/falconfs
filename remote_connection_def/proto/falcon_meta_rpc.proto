@@ -32,6 +32,15 @@ enum MetaServiceType {
     SLICE_GET = 24;
     SLICE_DEL = 25;
     FETCH_SLICE_ID = 26;
+    BLOCK_GET = 27;
+    BLOCK_ALLOC = 28;
+    BLOCK_INSERT = 29;
+    BLOCK_UPDATE = 30;
+    BLOCK_ABORT_ALLOC = 31;
+    BLOCK_DEL = 32;
+    BLOCK_STAT = 33;
+    SIZE_FILE_CREATE = 34;
+    SIZE_FILE_STAT = 35;
 }
 
 message MetaRequest {

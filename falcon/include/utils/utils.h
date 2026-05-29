@@ -26,6 +26,8 @@
 #include "metadb/slice_table.h"
 #include "metadb/kvmeta_table.h"
 #include "metadb/sliceid_table.h"
+#include "metadb/key_block_table.h"
+#include "metadb/size_file_table.h"
 
 #define INT32_PRINT_SYMBOL "%d"
 #define UINT32_PRINT_SYMBOL "%u"
@@ -71,6 +73,8 @@ extern ScanKeyData XattrTableScanKey[LAST_FALCON_XATTR_TABLE_SCANKEY_TYPE];
 extern ScanKeyData SliceTableScanKey[LAST_FALCON_SLICE_TABLE_SCANKEY_TYPE];
 extern ScanKeyData KvmetaTableScanKey[LAST_FALCON_KVMETA_TABLE_SCANKEY_TYPE];
 extern ScanKeyData SliceIdTableScanKey[LAST_FALCON_SLICEID_TABLE_SCANKEY_TYPE];
+extern ScanKeyData KeyBlockTableScanKey[LAST_FALCON_KEY_BLOCK_TABLE_SCANKEY_TYPE];
+extern ScanKeyData SizeFileTableScanKey[LAST_FALCON_SIZE_FILE_TABLE_SCANKEY_TYPE];
 
 bool ArrayTypeArrayToDatumArrayAndSize(ArrayType *arrayObject, Datum **datumArray, int *datumArrayLength);
 

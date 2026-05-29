@@ -107,6 +107,24 @@ table SliceIdResponse {
     startid: uint64;
     endid: uint64;
 }
+table BlockLocationResponse {
+    key: string;
+    size: uint64;
+    offset: uint64;
+    file_path: string;
+    atime: uint64;
+    mtime: uint64;
+    ctime: uint64;
+    version: uint64;
+    state: uint32;
+}
+table SizeFileResponse {
+    size: uint64;
+    file_path: string;
+    next_offset: uint64;
+    capacity: uint64;
+    state: uint32;
+}
 union AnyMetaResponse {
     PlainCommandResponse,
     CreateResponse,
@@ -118,7 +136,9 @@ union AnyMetaResponse {
     RenameSubRenameLocallyResponse,
     GetKVMetaResponse,
     SliceInfoResponse,
-    SliceIdResponse
+    SliceIdResponse,
+    BlockLocationResponse,
+    SizeFileResponse
 }
 table MetaResponse {
     error_code: uint32;

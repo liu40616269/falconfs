@@ -210,6 +210,33 @@ const char *g_checkpointNames[NOT_SUPPORTED][STAT_MAX_CHECKPOINTS] = {
     {COMMON_PREFIX,
      "handlerEntry", "scanReady", "done",
      COMMON_TAIL, NULL},
+
+    /* BLOCK_GET (27) */
+    {COMMON_PREFIX, COMMON_TAIL, NULL},
+
+    /* BLOCK_ALLOC (28) */
+    {COMMON_PREFIX, COMMON_TAIL, NULL},
+
+    /* BLOCK_INSERT (29) */
+    {COMMON_PREFIX, COMMON_TAIL, NULL},
+
+    /* BLOCK_UPDATE (30) */
+    {COMMON_PREFIX, COMMON_TAIL, NULL},
+
+    /* BLOCK_ABORT_ALLOC (31) */
+    {COMMON_PREFIX, COMMON_TAIL, NULL},
+
+    /* BLOCK_DEL (32) */
+    {COMMON_PREFIX, COMMON_TAIL, NULL},
+
+    /* BLOCK_STAT (33) */
+    {COMMON_PREFIX, COMMON_TAIL, NULL},
+
+    /* SIZE_FILE_CREATE (34) */
+    {COMMON_PREFIX, COMMON_TAIL, NULL},
+
+    /* SIZE_FILE_STAT (35) */
+    {COMMON_PREFIX, COMMON_TAIL, NULL},
 };
 
 /*
@@ -393,6 +420,15 @@ void PerRequestStatAggregateAndOutput(void)
             case SLICE_GET:                opName = "SLICE_GET"; break;
             case SLICE_DEL:                opName = "SLICE_DEL"; break;
             case FETCH_SLICE_ID:           opName = "FETCH_SLICE_ID"; break;
+            case BLOCK_GET:                opName = "BLOCK_GET"; break;
+            case BLOCK_ALLOC:              opName = "BLOCK_ALLOC"; break;
+            case BLOCK_INSERT:             opName = "BLOCK_INSERT"; break;
+            case BLOCK_UPDATE:             opName = "BLOCK_UPDATE"; break;
+            case BLOCK_ABORT_ALLOC:        opName = "BLOCK_ABORT_ALLOC"; break;
+            case BLOCK_DEL:                opName = "BLOCK_DEL"; break;
+            case BLOCK_STAT:               opName = "BLOCK_STAT"; break;
+            case SIZE_FILE_CREATE:         opName = "SIZE_FILE_CREATE"; break;
+            case SIZE_FILE_STAT:           opName = "SIZE_FILE_STAT"; break;
             default:                       break;
         }
 

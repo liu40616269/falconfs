@@ -846,3 +846,176 @@ bool SerializedSliceIdResponseEncodeWithPerProcessFlatBufferBuilder(SliceIdProce
 
     return true;
 }
+
+bool SerializedKeyBlockParamDecode(FalconSupportMetaService metaService,
+                                   int count,
+                                   SerializedData *param,
+                                   KeyBlockProcessInfoData *infoArray)
+{
+    sd_size_t p = 0;
+    for (int i = 0; i < count; ++i) {
+        uint8_t *buffer = (uint8_t *)param->buffer + p;
+        sd_size_t size = SerializedDataNextSeveralItemSize(param, p, 1);
+        if (size == (sd_size_t)-1) {
+            return false;
+        }
+
+        uint8_t *itemBuffer = (uint8_t *)buffer + SERIALIZED_DATA_ALIGNMENT;
+        size_t itemSize = size - SERIALIZED_DATA_ALIGNMENT;
+        flatbuffers::Verifier verifier(itemBuffer, itemSize);
+        if (!verifier.VerifyBuffer<falcon::meta_fbs::MetaParam>(NULL)) {
+            return false;
+        }
+
+        auto metaParam = falcon::meta_fbs::GetMetaParam(itemBuffer);
+        KeyBlockProcessInfo info = infoArray + i;
+        switch (metaService) {
+        case FalconSupportMetaService::BLOCK_GET:
+        case FalconSupportMetaService::BLOCK_DEL:
+        case FalconSupportMetaService::BLOCK_STAT: {
+            if (metaParam->param_type() != falcon::meta_fbs::AnyMetaParam::AnyMetaParam_BlockKeyParam) {
+                return false;
+            }
+            info->key = metaParam->param_as_BlockKeyParam()->key()->c_str();
+            break;
+        }
+        case FalconSupportMetaService::BLOCK_ALLOC: {
+            if (metaParam->param_type() != falcon::meta_fbs::AnyMetaParam::AnyMetaParam_BlockAllocParam) {
+                return false;
+            }
+            info->size = metaParam->param_as_BlockAllocParam()->size();
+            break;
+        }
+        case FalconSupportMetaService::BLOCK_INSERT: {
+            if (metaParam->param_type() != falcon::meta_fbs::AnyMetaParam::AnyMetaParam_BlockInsertParam) {
+                return false;
+            }
+            auto blockInsertParam = metaParam->param_as_BlockInsertParam();
+            info->key = blockInsertParam->key()->c_str();
+            info->size = blockInsertParam->size();
+            info->offset = blockInsertParam->offset();
+            break;
+        }
+        case FalconSupportMetaService::BLOCK_UPDATE: {
+            if (metaParam->param_type() != falcon::meta_fbs::AnyMetaParam::AnyMetaParam_BlockUpdateParam) {
+                return false;
+            }
+            info->key = metaParam->param_as_BlockUpdateParam()->key()->c_str();
+            break;
+        }
+        case FalconSupportMetaService::BLOCK_ABORT_ALLOC: {
+            if (metaParam->param_type() != falcon::meta_fbs::AnyMetaParam::AnyMetaParam_BlockAbortAllocParam) {
+                return false;
+            }
+            auto abortParam = metaParam->param_as_BlockAbortAllocParam();
+            info->size = abortParam->size();
+            info->offset = abortParam->offset();
+            break;
+        }
+        case FalconSupportMetaService::SIZE_FILE_CREATE: {
+            if (metaParam->param_type() != falcon::meta_fbs::AnyMetaParam::AnyMetaParam_SizeFileCreateParam) {
+                return false;
+            }
+            auto sizeFileParam = metaParam->param_as_SizeFileCreateParam();
+            info->size = sizeFileParam->size();
+            info->capacity = sizeFileParam->capacity();
+            break;
+        }
+        case FalconSupportMetaService::SIZE_FILE_STAT: {
+            if (metaParam->param_type() != falcon::meta_fbs::AnyMetaParam::AnyMetaParam_BlockAllocParam) {
+                return false;
+            }
+            info->size = metaParam->param_as_BlockAllocParam()->size();
+            break;
+        }
+        default:
+            return false;
+        }
+
+        p += size;
+    }
+    return true;
+}
+
+static bool SerializedKeyBlockResponseEncode(FalconSupportMetaService metaService,
+                                             int count,
+                                             KeyBlockProcessInfoData *infoArray,
+                                             flatbuffers::FlatBufferBuilder &builder,
+                                             SerializedData *response)
+{
+    for (int i = 0; i < count; ++i) {
+        builder.Clear();
+        KeyBlockProcessInfo info = infoArray + i;
+        flatbuffers::Offset<falcon::meta_fbs::MetaResponse> metaResponse;
+        if (info->errorCode != SUCCESS && info->errorCode != FILE_EXISTS) {
+            metaResponse = falcon::meta_fbs::CreateMetaResponse(builder, info->errorCode);
+        } else {
+            switch (metaService) {
+            case FalconSupportMetaService::BLOCK_INSERT:
+            case FalconSupportMetaService::BLOCK_UPDATE:
+            case FalconSupportMetaService::BLOCK_ABORT_ALLOC:
+            case FalconSupportMetaService::BLOCK_DEL:
+            case FalconSupportMetaService::SIZE_FILE_CREATE: {
+                metaResponse = falcon::meta_fbs::CreateMetaResponse(builder, info->errorCode);
+                break;
+            }
+            case FalconSupportMetaService::BLOCK_GET:
+            case FalconSupportMetaService::BLOCK_ALLOC:
+            case FalconSupportMetaService::BLOCK_STAT: {
+                auto keyOffset = info->key == NULL ? flatbuffers::Offset<flatbuffers::String>()
+                                                   : builder.CreateString(info->key);
+                auto filePathOffset = info->filePath == NULL ? flatbuffers::Offset<flatbuffers::String>()
+                                                             : builder.CreateString(info->filePath);
+                auto blockLocationResponse = falcon::meta_fbs::CreateBlockLocationResponse(
+                    builder,
+                    keyOffset,
+                    info->size,
+                    info->offset,
+                    filePathOffset,
+                    info->atime,
+                    info->mtime,
+                    info->ctime,
+                    info->version,
+                    info->state);
+                metaResponse = falcon::meta_fbs::CreateMetaResponse(
+                    builder,
+                    info->errorCode,
+                    falcon::meta_fbs::AnyMetaResponse_BlockLocationResponse,
+                    blockLocationResponse.Union());
+                break;
+            }
+            case FalconSupportMetaService::SIZE_FILE_STAT: {
+                auto filePathOffset = info->filePath == NULL ? flatbuffers::Offset<flatbuffers::String>()
+                                                             : builder.CreateString(info->filePath);
+                auto sizeFileResponse = falcon::meta_fbs::CreateSizeFileResponse(
+                    builder,
+                    info->size,
+                    filePathOffset,
+                    info->nextOffset,
+                    info->capacity,
+                    info->state);
+                metaResponse = falcon::meta_fbs::CreateMetaResponse(builder,
+                                                                    info->errorCode,
+                                                                    falcon::meta_fbs::AnyMetaResponse_SizeFileResponse,
+                                                                    sizeFileResponse.Union());
+                break;
+            }
+            default:
+                return false;
+            }
+        }
+
+        builder.Finish(metaResponse);
+        char *buffer = SerializedDataApplyForSegment(response, builder.GetSize());
+        memcpy(buffer, builder.GetBufferPointer(), builder.GetSize());
+    }
+    return true;
+}
+
+bool SerializedKeyBlockResponseEncodeWithPerProcessFlatBufferBuilder(FalconSupportMetaService metaService,
+                                                                     int count,
+                                                                     KeyBlockProcessInfoData *infoArray,
+                                                                     SerializedData *response)
+{
+    return SerializedKeyBlockResponseEncode(metaService, count, infoArray, FlatBufferBuilderPerProcess, response);
+}

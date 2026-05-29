@@ -14,6 +14,7 @@ void FalconCreateDistributedDataTableByRangePoint(int);
 void FalconDropDistributedDataTableByRangePoint(int);
 void FalconCreateSliceTable(void);
 void FalconCreateKvmetaTable(void);
+void FalconCreateKeyBlockTable(void);
 void FalconPrepareCommands(void);
 
 #endif

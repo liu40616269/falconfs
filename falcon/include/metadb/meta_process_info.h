@@ -120,6 +120,25 @@ typedef struct SliceIdProcessInfoData
 
 typedef SliceIdProcessInfoData *SliceIdProcessInfo;
 
+typedef struct KeyBlockProcessInfoData
+{
+    const char *key;
+    uint64_t size;
+    uint64_t offset;
+    uint64_t nextOffset;
+    uint64_t capacity;
+    char *filePath;
+    int64_t atime;
+    int64_t mtime;
+    int64_t ctime;
+    uint64_t version;
+    uint32_t state;
+    int32_t statArrayIndex;
+    FalconErrorCode errorCode;
+} KeyBlockProcessInfoData;
+
+typedef KeyBlockProcessInfoData *KeyBlockProcessInfo;
+
 int pg_qsort_meta_process_info_by_path_cmp(const void *a, const void *b);
 
 #endif

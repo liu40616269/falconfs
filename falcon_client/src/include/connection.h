@@ -169,6 +169,49 @@ class Connection {
     FalconErrorCode KvGet(const char *key, KvGetResult &result, ConnectionCache *cache = nullptr);
     FalconErrorCode KvDel(const char *key, ConnectionCache *cache = nullptr);
 
+    // Key/Data block metadata operations
+    class BlockLocationResult {
+        friend Connection;
+
+      protected:
+        std::unique_ptr<char[]> responseBuffer;
+
+      public:
+        std::string key;
+        uint64_t size = 0;
+        uint64_t offset = 0;
+        std::string filePath;
+        int64_t atime = 0;
+        int64_t mtime = 0;
+        int64_t ctime = 0;
+        uint64_t version = 0;
+        uint32_t state = 0;
+    };
+
+    class SizeFileResult {
+        friend Connection;
+
+      protected:
+        std::unique_ptr<char[]> responseBuffer;
+
+      public:
+        uint64_t size = 0;
+        std::string filePath;
+        uint64_t nextOffset = 0;
+        uint64_t capacity = 0;
+        uint32_t state = 0;
+    };
+
+    FalconErrorCode BlockGet(const char *key, BlockLocationResult &result, ConnectionCache *cache = nullptr);
+    FalconErrorCode BlockAlloc(uint64_t size, BlockLocationResult &result, ConnectionCache *cache = nullptr);
+    FalconErrorCode BlockInsert(const char *key, uint64_t size, uint64_t offset, ConnectionCache *cache = nullptr);
+    FalconErrorCode BlockUpdate(const char *key, ConnectionCache *cache = nullptr);
+    FalconErrorCode BlockAbortAlloc(uint64_t size, uint64_t offset, ConnectionCache *cache = nullptr);
+    FalconErrorCode BlockDel(const char *key, ConnectionCache *cache = nullptr);
+    FalconErrorCode BlockStat(const char *key, BlockLocationResult &result, ConnectionCache *cache = nullptr);
+    FalconErrorCode SizeFileCreate(uint64_t size, uint64_t capacity, ConnectionCache *cache = nullptr);
+    FalconErrorCode SizeFileStat(uint64_t size, SizeFileResult &result, ConnectionCache *cache = nullptr);
+
     // Slice operations
     class SliceGetResult {
         friend Connection;

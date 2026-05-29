@@ -32,6 +32,15 @@ typedef enum FalconMetaServiceType {
     SLICE_GET,
     SLICE_DEL,
     FETCH_SLICE_ID,
+    BLOCK_GET,
+    BLOCK_ALLOC,
+    BLOCK_INSERT,
+    BLOCK_UPDATE,
+    BLOCK_ABORT_ALLOC,
+    BLOCK_DEL,
+    BLOCK_STAT,
+    SIZE_FILE_CREATE,
+    SIZE_FILE_STAT,
     NOT_SUPPORTED
 } FalconMetaServiceType;
 #endif // FALCON_META_SERVICE_DEF_H

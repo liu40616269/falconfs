@@ -60,6 +60,24 @@ FalconMetaServiceType BrpcMetaServiceJob::MetaServiceTypeDecode(falcon::meta_pro
         return FalconMetaServiceType::SLICE_DEL;
     case falcon::meta_proto::MetaServiceType::FETCH_SLICE_ID:
         return FalconMetaServiceType::FETCH_SLICE_ID;
+    case falcon::meta_proto::MetaServiceType::BLOCK_GET:
+        return FalconMetaServiceType::BLOCK_GET;
+    case falcon::meta_proto::MetaServiceType::BLOCK_ALLOC:
+        return FalconMetaServiceType::BLOCK_ALLOC;
+    case falcon::meta_proto::MetaServiceType::BLOCK_INSERT:
+        return FalconMetaServiceType::BLOCK_INSERT;
+    case falcon::meta_proto::MetaServiceType::BLOCK_UPDATE:
+        return FalconMetaServiceType::BLOCK_UPDATE;
+    case falcon::meta_proto::MetaServiceType::BLOCK_ABORT_ALLOC:
+        return FalconMetaServiceType::BLOCK_ABORT_ALLOC;
+    case falcon::meta_proto::MetaServiceType::BLOCK_DEL:
+        return FalconMetaServiceType::BLOCK_DEL;
+    case falcon::meta_proto::MetaServiceType::BLOCK_STAT:
+        return FalconMetaServiceType::BLOCK_STAT;
+    case falcon::meta_proto::MetaServiceType::SIZE_FILE_CREATE:
+        return FalconMetaServiceType::SIZE_FILE_CREATE;
+    case falcon::meta_proto::MetaServiceType::SIZE_FILE_STAT:
+        return FalconMetaServiceType::SIZE_FILE_STAT;
     default:
         return FalconMetaServiceType::NOT_SUPPORTED;
     }

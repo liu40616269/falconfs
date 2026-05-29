@@ -329,6 +329,17 @@ COMMENT ON FUNCTION pg_catalog.falcon_create_kvmeta_table()
 
 
 ----------------------------------------------------------------
+-- falcon_create_key_block_table
+----------------------------------------------------------------
+CREATE FUNCTION pg_catalog.falcon_create_key_block_table()
+    RETURNS INTEGER
+    LANGUAGE C STRICT
+    AS 'MODULE_PATHNAME', $$falcon_create_key_block_table$$;
+COMMENT ON FUNCTION pg_catalog.falcon_create_key_block_table()
+    IS 'falcon build key block table';
+
+
+----------------------------------------------------------------
 -- falcon_kvsliceid_table
 ----------------------------------------------------------------]
 CREATE TABLE falcon.falcon_kvsliceid_table(
@@ -350,4 +361,3 @@ CREATE TABLE falcon.falcon_filesliceid_table(
 CREATE UNIQUE INDEX falcon_filesliceid_table_index ON falcon.falcon_filesliceid_table using btree(keystr);
 ALTER TABLE falcon.falcon_filesliceid_table SET SCHEMA pg_catalog;
 GRANT SELECT ON pg_catalog.falcon_filesliceid_table TO public;
-

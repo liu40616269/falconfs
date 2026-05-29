@@ -147,6 +147,7 @@ set(PROTO_HEADER ${CMAKE_BINARY_DIR}/falcon_meta_rpc.pb.h)
 set(BRPC_SRC ${CMAKE_BINARY_DIR}/brpc_io.pb.cc)
 set(BRPC_HEADER ${CMAKE_BINARY_DIR}/brpc_io.pb.h)
 
+include(${CMAKE_SOURCE_DIR}/cmake/Protobuf.cmake)
 include(${CMAKE_SOURCE_DIR}/cmake/Flatbuffers.cmake)
 include_directories(${FLATBUFFERS_GENERATED_DIR} ${CMAKE_BINARY_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/remote_connection_def)

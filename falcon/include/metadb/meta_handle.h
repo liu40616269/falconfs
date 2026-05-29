@@ -47,4 +47,14 @@ void FalconKvmetaDelHandle(KvMetaProcessInfo *infoArray, int count);
 
 void FalconFetchSliceIdHandle(SliceIdProcessInfo infoData);
 
+void FalconBlockGetHandle(KeyBlockProcessInfo *infoArray, int count);
+void FalconBlockAllocHandle(KeyBlockProcessInfo *infoArray, int count);
+void FalconBlockInsertHandle(KeyBlockProcessInfo *infoArray, int count);
+void FalconBlockUpdateHandle(KeyBlockProcessInfo *infoArray, int count);
+void FalconBlockAbortAllocHandle(KeyBlockProcessInfo *infoArray, int count);
+void FalconBlockDelHandle(KeyBlockProcessInfo *infoArray, int count);
+void FalconBlockStatHandle(KeyBlockProcessInfo *infoArray, int count);
+void FalconSizeFileCreateHandle(KeyBlockProcessInfo *infoArray, int count);
+void FalconSizeFileStatHandle(KeyBlockProcessInfo *infoArray, int count);
+
 #endif

@@ -295,6 +295,7 @@ if [[ "$cnIp" == "$localIp" ]]; then
 select falcon_create_distributed_data_table();
 select falcon_create_slice_table();
 select falcon_create_kvmeta_table();
+select falcon_create_key_block_table();
 select falcon_start_background_service();
 EOF
     done
