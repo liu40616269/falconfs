@@ -21,6 +21,7 @@
 
 #include "dir_path_shmem/dir_path_hash.h"
 #include "distributed_backend/remote_comm_falcon.h"
+#include "metadb/key_block_allocator.h"
 #include "metadb/key_block_table.h"
 #include "metadb/meta_handle_helper.h"
 #include "metadb/meta_process_info.h"
@@ -3214,77 +3215,18 @@ void FalconBlockGetHandle(KeyBlockProcessInfo *infoArray, int count)
 
 void FalconBlockAllocHandle(KeyBlockProcessInfo *infoArray, int count)
 {
-    SetUpScanCaches();
-
-    Relation sizeFileRel = table_open(GetRelationOidByName_FALCON(SizeFileTableName), AccessExclusiveLock);
-    Oid sizeFileIndexOid = FalconTableIndexOid(SizeFileTableName);
-    TupleDesc tupleDesc = RelationGetDescr(sizeFileRel);
-
     for (int i = 0; i < count; ++i) {
         KeyBlockProcessInfo info = infoArray[i];
-        info->errorCode = SUCCESS;
-
-        ScanKeyData scanKey[LAST_FALCON_SIZE_FILE_TABLE_SCANKEY_TYPE];
-        scanKey[SIZE_FILE_TABLE_SIZE_EQ] = SizeFileTableScanKey[SIZE_FILE_TABLE_SIZE_EQ];
-        scanKey[SIZE_FILE_TABLE_SIZE_EQ].sk_argument = UInt64GetDatum(info->size);
-
-        SysScanDesc scanDesc = systable_beginscan(sizeFileRel,
-                                                  sizeFileIndexOid,
-                                                  true,
-                                                  GetTransactionSnapshot(),
-                                                  LAST_FALCON_SIZE_FILE_TABLE_SCANKEY_TYPE,
-                                                  scanKey);
-        HeapTuple heapTuple = systable_getnext(scanDesc);
-        if (!HeapTupleIsValid(heapTuple)) {
-            systable_endscan(scanDesc);
+        info->errorCode = KeyBlockAllocatorAlloc(info->size, &info->offset);
+        if (info->errorCode != SUCCESS) {
+            continue;
+        }
+        if (!LoadSizeFileInfo(info, info->size)) {
             info->errorCode = FILE_NOT_EXISTS;
             continue;
         }
-
-        bool isNull;
-        info->filePath = TextDatumGetCString(heap_getattr(heapTuple,
-                                                          Anum_falcon_size_file_table_file_path,
-                                                          tupleDesc,
-                                                          &isNull));
-        info->nextOffset = DatumGetUInt64(heap_getattr(heapTuple,
-                                                       Anum_falcon_size_file_table_next_offset,
-                                                       tupleDesc,
-                                                       &isNull));
-        info->capacity = DatumGetUInt64(heap_getattr(heapTuple,
-                                                     Anum_falcon_size_file_table_capacity,
-                                                     tupleDesc,
-                                                     &isNull));
-        info->state = DatumGetUInt32(heap_getattr(heapTuple,
-                                                  Anum_falcon_size_file_table_state,
-                                                  tupleDesc,
-                                                  &isNull));
-        if (info->size == 0 || info->nextOffset > info->capacity || info->size > info->capacity - info->nextOffset) {
-            systable_endscan(scanDesc);
-            info->errorCode = IO_ERROR;
-            continue;
-        }
-
-        info->offset = info->nextOffset;
-        info->nextOffset += info->size;
-
-        Datum values[Natts_falcon_size_file_table];
-        bool isNulls[Natts_falcon_size_file_table];
-        bool updates[Natts_falcon_size_file_table];
-        memset(values, 0, sizeof(values));
-        memset(isNulls, false, sizeof(isNulls));
-        memset(updates, false, sizeof(updates));
-        values[Anum_falcon_size_file_table_next_offset - 1] = UInt64GetDatum(info->nextOffset);
-        values[Anum_falcon_size_file_table_update_time - 1] = TimestampTzGetDatum(GetCurrentTimestamp());
-        updates[Anum_falcon_size_file_table_next_offset - 1] = true;
-        updates[Anum_falcon_size_file_table_update_time - 1] = true;
-
-        HeapTuple updatedTuple = heap_modify_tuple(heapTuple, tupleDesc, values, isNulls, updates);
-        CatalogTupleUpdate(sizeFileRel, &updatedTuple->t_self, updatedTuple);
-        heap_freetuple(updatedTuple);
-        systable_endscan(scanDesc);
+        info->nextOffset = info->offset + info->size;
     }
-
-    table_close(sizeFileRel, AccessExclusiveLock);
 }
 
 void FalconBlockInsertHandle(KeyBlockProcessInfo *infoArray, int count)
@@ -3397,58 +3339,10 @@ void FalconBlockUpdateHandle(KeyBlockProcessInfo *infoArray, int count)
 
 void FalconBlockAbortAllocHandle(KeyBlockProcessInfo *infoArray, int count)
 {
-    SetUpScanCaches();
-
-    Relation sizeFileRel = table_open(GetRelationOidByName_FALCON(SizeFileTableName), AccessExclusiveLock);
-    Oid sizeFileIndexOid = FalconTableIndexOid(SizeFileTableName);
-    TupleDesc tupleDesc = RelationGetDescr(sizeFileRel);
-
     for (int i = 0; i < count; ++i) {
         KeyBlockProcessInfo info = infoArray[i];
-        info->errorCode = SUCCESS;
-
-        ScanKeyData scanKey[LAST_FALCON_SIZE_FILE_TABLE_SCANKEY_TYPE];
-        scanKey[SIZE_FILE_TABLE_SIZE_EQ] = SizeFileTableScanKey[SIZE_FILE_TABLE_SIZE_EQ];
-        scanKey[SIZE_FILE_TABLE_SIZE_EQ].sk_argument = UInt64GetDatum(info->size);
-
-        SysScanDesc scanDesc = systable_beginscan(sizeFileRel,
-                                                  sizeFileIndexOid,
-                                                  true,
-                                                  GetTransactionSnapshot(),
-                                                  LAST_FALCON_SIZE_FILE_TABLE_SCANKEY_TYPE,
-                                                  scanKey);
-        HeapTuple heapTuple = systable_getnext(scanDesc);
-        if (!HeapTupleIsValid(heapTuple)) {
-            systable_endscan(scanDesc);
-            info->errorCode = FILE_NOT_EXISTS;
-            continue;
-        }
-
-        bool isNull;
-        uint64_t nextOffset = DatumGetUInt64(heap_getattr(heapTuple,
-                                                          Anum_falcon_size_file_table_next_offset,
-                                                          tupleDesc,
-                                                          &isNull));
-        if (info->size != 0 && info->offset <= UINT64_MAX - info->size && info->offset + info->size == nextOffset) {
-            Datum values[Natts_falcon_size_file_table];
-            bool isNulls[Natts_falcon_size_file_table];
-            bool updates[Natts_falcon_size_file_table];
-            memset(values, 0, sizeof(values));
-            memset(isNulls, false, sizeof(isNulls));
-            memset(updates, false, sizeof(updates));
-            values[Anum_falcon_size_file_table_next_offset - 1] = UInt64GetDatum(info->offset);
-            values[Anum_falcon_size_file_table_update_time - 1] = TimestampTzGetDatum(GetCurrentTimestamp());
-            updates[Anum_falcon_size_file_table_next_offset - 1] = true;
-            updates[Anum_falcon_size_file_table_update_time - 1] = true;
-
-            HeapTuple updatedTuple = heap_modify_tuple(heapTuple, tupleDesc, values, isNulls, updates);
-            CatalogTupleUpdate(sizeFileRel, &updatedTuple->t_self, updatedTuple);
-            heap_freetuple(updatedTuple);
-        }
-        systable_endscan(scanDesc);
+        info->errorCode = KeyBlockAllocatorAbort(info->size, info->offset);
     }
-
-    table_close(sizeFileRel, AccessExclusiveLock);
 }
 
 void FalconBlockDelHandle(KeyBlockProcessInfo *infoArray, int count)
@@ -3481,6 +3375,7 @@ void FalconBlockDelHandle(KeyBlockProcessInfo *infoArray, int count)
 
         FillKeyBlockInfoFromTuple(info, keyBlockRel, heapTuple);
         CatalogTupleDelete(keyBlockRel, &heapTuple->t_self);
+        (void)KeyBlockAllocatorFree(info->size, info->offset);
         systable_endscan(scanDesc);
     }
 
@@ -3537,6 +3432,10 @@ void FalconSizeFileCreateHandle(KeyBlockProcessInfo *infoArray, int count)
             FreeErrorData(errorData);
         }
         PG_END_TRY();
+
+        if (info->errorCode == SUCCESS) {
+            info->errorCode = KeyBlockAllocatorCreateSize(info->size, info->capacity);
+        }
     }
 
     CatalogCloseIndexes(indexState);

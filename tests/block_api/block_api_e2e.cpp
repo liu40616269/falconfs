@@ -94,6 +94,44 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    const std::string fillKey = key + "_fill";
+    const std::string reuseKey = key + "_reuse";
+
+    ret = FalconBlockPut(fillKey, data.data(), data.size());
+    if (CheckCode(ret, SUCCESS, "FalconBlockPut(fill slot)") != 0) {
+        return 1;
+    }
+
+    FalconBlockStatResult fillStat;
+    ret = FalconBlockStat(fillKey, &fillStat);
+    if (CheckCode(ret, SUCCESS, "FalconBlockStat(fill slot)") != 0) {
+        return 1;
+    }
+
+    ret = FalconBlockDel(fillKey);
+    if (CheckCode(ret, SUCCESS, "FalconBlockDel(fill slot)") != 0) {
+        return 1;
+    }
+
+    ret = FalconBlockPut(reuseKey, data.data(), data.size());
+    if (CheckCode(ret, SUCCESS, "FalconBlockPut(reuse candidate)") != 0) {
+        return 1;
+    }
+
+    std::fill(buffer.begin(), buffer.end(), '\0');
+    ret = FalconBlockGet(reuseKey, buffer.data(), buffer.size());
+    if (CheckCode(ret, SUCCESS, "FalconBlockGet(reuse candidate)") != 0) {
+        return 1;
+    }
+    if (Check(std::memcmp(buffer.data(), data.data(), data.size()) == 0, "reuse candidate data mismatch") != 0) {
+        return 1;
+    }
+
+    ret = FalconBlockDel(reuseKey);
+    if (CheckCode(ret, SUCCESS, "FalconBlockDel(reuse candidate)") != 0) {
+        return 1;
+    }
+
     std::cout << "PASS BlockApiE2E key=" << key << " size=" << data.size() << " file=" << stat.filePath
               << " offset=" << stat.offset << std::endl;
     return 0;

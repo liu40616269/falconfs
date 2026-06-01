@@ -18,6 +18,7 @@
 #include "control/hook.h"
 #include "dir_path_shmem/dir_path_hash.h"
 #include "metadb/foreign_server.h"
+#include "metadb/key_block_allocator.h"
 #include "metadb/metadata.h"
 #include "metadb/shard_table.h"
 #include "transaction/transaction.h"
@@ -164,6 +165,7 @@ static void FalconShmemRequest(void)
     RequestAddinShmemSpace(FalconConnectionPoolShmemsize());
     RequestAddinShmemSpace(FalconPluginShmemSize());
     RequestAddinShmemSpace(FalconPerRequestStatShmemSize());
+    RequestAddinShmemSpace(KeyBlockAllocatorShmemsize());
 }
 static void FalconShmemInit(void)
 {
@@ -181,6 +183,7 @@ static void FalconShmemInit(void)
     FalconConnectionPoolShmemInit();
     FalconPluginShmemInit();
     FalconPerRequestStatShmemInit();
+    KeyBlockAllocatorShmemInit();
 
     LWLockRelease(AddinShmemInitLock);
 
